@@ -10,11 +10,8 @@
     "start": "node dist/index.js",
     "postinstall": "npm run build",
     "lint": "eslint . --ext ts --report-unused-disable-directives",
-    "seed": "tsx ./scripts/seed.ts",
-    "seed:scenarios": "tsx ./scripts/seedScenarios.ts",
-    "seed:users": "tsx ./scripts/seedData/users.ts",
-    "seed:vehicles": "tsx ./scripts/seedData/vehicles.ts",
-    "seed:ads": "tsx ./scripts/seedAds.ts"
+
+    "seed:users": "tsx ./scripts/seedData/users.ts"
   },
   "engines": {
     "node": ">=18.0.0",
