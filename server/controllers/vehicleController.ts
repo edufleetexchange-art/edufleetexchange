@@ -1,6 +1,8 @@
 import { Response } from 'express';
 import Vehicle from '../models/Vehicle.js';
 import Notification from '../models/Notification.js';
+import User from '../models/User.js';
+import { logAction } from '../utils/auditLogger.js';
 import { AuthRequest } from '../middleware/auth.js';
 import { ISubscriptionPlan } from '../models/SubscriptionPlan.js';
 
@@ -187,7 +189,7 @@ export const createVehicle = async (req: AuthRequest, res: Response): Promise<vo
     }
 
     // Check subscription permissions for vehicle advertising
-    if (req.user.role !== 'admin') {
+    if (req.user.role !== 'admin' && req.user.role !== 'marketing') {
       const plan = req.user.subscription?.planId as unknown as ISubscriptionPlan;
       
       if (plan && !plan.features.canAdvertiseVehicles) {
@@ -213,16 +215,44 @@ export const createVehicle = async (req: AuthRequest, res: Response): Promise<vo
       }
     }
 
+    let sellerId = req.user._id;
+    let sellerName = req.user.instituteName || req.user.name;
+    let sellerEmail = req.user.email;
+    let sellerPhone = req.user.phone;
+
+    // If marketing or admin, allow providing seller details (listing on behalf of school)
+    if ((req.user.role === 'admin' || req.user.role === 'marketing') && req.body.sellerId) {
+      const actualSeller = await User.findById(req.body.sellerId);
+      if (actualSeller) {
+        sellerId = actualSeller._id;
+        sellerName = actualSeller.instituteName || actualSeller.name;
+        sellerEmail = actualSeller.email;
+        sellerPhone = actualSeller.phone;
+      }
+    }
+
     const vehicleData = {
       ...req.body,
-      sellerId: req.user._id,
-      sellerName: req.user.instituteName || req.user.name,
-      sellerEmail: req.user.email,
-      sellerPhone: req.user.phone,
+      sellerId,
+      sellerName,
+      sellerEmail,
+      sellerPhone,
       status: 'pending',
     };
 
     const vehicle = await Vehicle.create(vehicleData);
+
+    // Log action if marketing team member assisted
+    if (req.user.role === 'marketing' || req.user.role === 'admin') {
+      await logAction({
+        user: req.user,
+        action: 'ASSISTED_VEHICLE_LISTING',
+        targetId: vehicle._id.toString(),
+        targetType: 'Vehicle',
+        details: `Assisted in listing vehicle "${vehicle.title}" for seller ${sellerName} (${sellerId})`,
+        req
+      });
+    }
 
     // Update listingsUsed counter
     if (req.user.subscription) {

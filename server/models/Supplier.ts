@@ -2,7 +2,7 @@ import mongoose, { Schema, Document } from 'mongoose';
 
 export interface ISupplier extends Document {
   name: string;
-  category: 'edutech' | 'stationery' | 'uniforms' | 'furniture' | 'technology' | 'sports' | 'library' | 'lab-equipment' | 'cafeteria' | 'maintenance' | 'security' | 'transport' | 'other';
+  category: 'edutech' | 'books' | 'stationery' | 'uniforms' | 'furniture' | 'technology' | 'sports' | 'library' | 'lab-equipment' | 'cafeteria' | 'maintenance' | 'security' | 'transport' | 'other';
   description: string;
   services: string[];
   contactPerson: string;
@@ -39,6 +39,7 @@ const supplierSchema = new Schema<ISupplier>(
       required: [true, 'Category is required'],
       enum: [
         'edutech',
+        'books',
         'stationery',
         'uniforms',
         'furniture',
@@ -78,6 +79,8 @@ const supplierSchema = new Schema<ISupplier>(
     },
     website: {
       type: String,
+
+
     },
     address: {
       street: {
