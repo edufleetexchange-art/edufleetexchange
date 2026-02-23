@@ -1,5 +1,35 @@
 import mongoose, { Schema, Document } from 'mongoose';
 
+// Persona-based feature interface
+interface IPersonaFeatures {
+  // Common features for all personas
+  maxBrowsesPerMonth: number;
+  maxListings?: number; // Legacy/Alias for backward compatibility
+  dataDelayDays: number;
+  instantAlerts: boolean;
+  analytics: boolean;
+  supportLevel: 'basic' | 'priority' | 'premium';
+  
+  // Institute-specific features
+  maxVehicleListings?: number;
+  maxJobPosts?: number;
+  canAdvertiseVehicles?: boolean;
+  priorityVehicleListings?: boolean;
+  instantJobAlerts?: boolean;
+  
+  // Vendor-specific features
+  maxProductListings?: number;
+  canAdvertiseProducts?: boolean;
+  priorityProductListings?: boolean;
+  
+  // Teacher-specific features
+  maxJobApplications?: number;
+  profileVisibility?: 'hidden' | 'basic' | 'enhanced' | 'premium';
+  canAccessJobBoard?: boolean;
+  teacherDataDelayDays?: number;
+  instantJobNotifications?: boolean;
+}
+
 export interface ISubscriptionPlan extends Document {
   name: string;
   displayName: string;
@@ -8,19 +38,7 @@ export interface ISubscriptionPlan extends Document {
   price: number;
   currency: string;
   duration: number; // in days
-  features: {
-    maxListings: number;
-    maxJobPosts: number;
-    maxBrowsesPerMonth: number;
-    dataDelayDays: number;
-    teacherDataDelayDays: number;
-    canAdvertiseVehicles: boolean;
-    instantVehicleAlerts: boolean;
-    instantJobAlerts: boolean;
-    priorityListings: boolean;
-    analytics: boolean;
-    supportLevel: 'basic' | 'priority' | 'premium';
-  };
+  features: IPersonaFeatures;
   isActive: boolean;
   createdAt: Date;
   updatedAt: Date;
@@ -41,6 +59,7 @@ const subscriptionPlanSchema = new Schema<ISubscriptionPlan>(
     },
     planType: {
       type: String,
+      enum: ['teacher', 'institute', 'vendor'],
       required: true,
     },
     description: {
@@ -63,41 +82,21 @@ const subscriptionPlanSchema = new Schema<ISubscriptionPlan>(
       min: 1,
     },
     features: {
-      maxListings: {
+      // Common features for all personas
+      maxBrowsesPerMonth: {
         type: Number,
         required: true,
         min: 0,
       },
-      maxJobPosts: {
+      maxListings: {
         type: Number,
-        default: 0,
-      },
-      maxBrowsesPerMonth: {
-        type: Number,
-        required: true,
         min: 0,
       },
       dataDelayDays: {
         type: Number,
         default: 0,
       },
-      teacherDataDelayDays: {
-        type: Number,
-        default: 0,
-      },
-      canAdvertiseVehicles: {
-        type: Boolean,
-        default: false,
-      },
-      instantVehicleAlerts: {
-        type: Boolean,
-        default: false,
-      },
-      instantJobAlerts: {
-        type: Boolean,
-        default: false,
-      },
-      priorityListings: {
+      instantAlerts: {
         type: Boolean,
         default: false,
       },
@@ -109,6 +108,64 @@ const subscriptionPlanSchema = new Schema<ISubscriptionPlan>(
         type: String,
         enum: ['basic', 'priority', 'premium'],
         default: 'basic',
+      },
+      
+      // Institute-specific features
+      maxVehicleListings: {
+        type: Number,
+        min: 0,
+      },
+      maxJobPosts: {
+        type: Number,
+        min: 0,
+      },
+      canAdvertiseVehicles: {
+        type: Boolean,
+        default: false,
+      },
+      priorityVehicleListings: {
+        type: Boolean,
+        default: false,
+      },
+      instantJobAlerts: {
+        type: Boolean,
+        default: false,
+      },
+      
+      // Vendor-specific features
+      maxProductListings: {
+        type: Number,
+        min: 0,
+      },
+      canAdvertiseProducts: {
+        type: Boolean,
+        default: false,
+      },
+      priorityProductListings: {
+        type: Boolean,
+        default: false,
+      },
+      
+      // Teacher-specific features
+      maxJobApplications: {
+        type: Number,
+        min: 0,
+      },
+      profileVisibility: {
+        type: String,
+        enum: ['hidden', 'basic', 'enhanced', 'premium'],
+      },
+      canAccessJobBoard: {
+        type: Boolean,
+        default: true,
+      },
+      teacherDataDelayDays: {
+        type: Number,
+        default: 0,
+      },
+      instantJobNotifications: {
+        type: Boolean,
+        default: false,
       },
     },
     isActive: {

@@ -36,7 +36,7 @@ export const createJob = async (req: AuthRequest, res: Response) => {
     }
 
     // Check subscription limits for job posts
-    if (user.role !== 'admin' && user.role !== 'marketing') {
+    if (user.role !== 'admin' && user.role !== 'sales') {
       const plan = user.subscription?.planId as unknown as ISubscriptionPlan;
       const maxJobPosts = plan?.features?.maxJobPosts ?? 0;
       const jobPostsUsed = user.subscription?.jobPostsUsed ?? 0;
@@ -54,11 +54,11 @@ export const createJob = async (req: AuthRequest, res: Response) => {
     let instituteName = user.instituteName || user.name;
     let contactEmail = user.email;
 
-    // If marketing or admin, allow providing instituteId (listing on behalf of school)
-    if ((user.role === 'admin' || user.role === 'marketing') && req.body.instituteId) {
+    // If sales or admin, allow providing instituteId (listing on behalf of school)
+    if ((user.role === 'admin' || user.role === 'sales') && req.body.instituteId) {
       const actualInstitute = await User.findById(req.body.instituteId);
       if (actualInstitute) {
-        instituteId = actualInstitute._id;
+        instituteId = actualInstitute._id.toString();
         instituteName = actualInstitute.instituteName || actualInstitute.name;
         contactEmail = actualInstitute.email;
       }
@@ -73,8 +73,8 @@ export const createJob = async (req: AuthRequest, res: Response) => {
 
     const job = await Job.create(jobData);
 
-    // Log action if marketing team member assisted
-    if (user.role === 'marketing' || user.role === 'admin') {
+    // Log action if staff member assisted
+    if (user.role === 'sales' || user.role === 'admin') {
       await logAction({
         user,
         action: 'ASSISTED_JOB_LISTING',
@@ -86,7 +86,7 @@ export const createJob = async (req: AuthRequest, res: Response) => {
     }
 
     // Update jobPostsUsed counter
-    if (user.subscription) {
+    if (user.subscription && user.role !== 'sales') {
       user.subscription.jobPostsUsed = (user.subscription.jobPostsUsed || 0) + 1;
       await user.save();
     }
@@ -110,6 +110,7 @@ export const getAllJobs = async (req: AuthRequest, res: Response) => {
     const {
       location,
       subjects,
+      department,
       employmentType,
       minSalary,
       maxSalary,
@@ -139,6 +140,10 @@ export const getAllJobs = async (req: AuthRequest, res: Response) => {
     if (subjects) {
       const subjectArray = (subjects as string).split(',');
       query.subjects = { $in: subjectArray };
+    }
+
+    if (department) {
+      query.department = department;
     }
 
     if (employmentType) {

@@ -18,7 +18,7 @@ const generateToken = (userId: string): string => {
 export const signup = async (req: AuthRequest, res: Response): Promise<void> => {
   try {
     const { name, email, password, role, instituteName, contactPerson, phone,
-      experience, qualifications, subjects, bio, location
+      experience, qualifications, subjects, bio, location, planId
     } = req.body;
 
     // Check if user exists
@@ -34,42 +34,52 @@ export const signup = async (req: AuthRequest, res: Response): Promise<void> => 
 
     // Determine plan type based on role
     // Default to institute if not specified or unrecognized
-    let planType = 'institute';
-    if (role === 'teacher') {
-      planType = 'teacher';
-    } else if (role === 'supplier' || role === 'vendor') {
-      planType = 'vendor';
-    }
-
-    // Find default free plan
-    const freePlan = await SubscriptionPlan.findOne({
-      planType,
-      price: 0,
-      isActive: true
-    });
-
     let subscription = undefined;
+    const internalRoles = ['admin', 'marketing', 'sales'];
 
-    if (freePlan) {
-      const startDate = new Date();
-      const endDate = new Date();
-      endDate.setDate(endDate.getDate() + freePlan.duration);
+    if (!internalRoles.includes(role)) {
+      let planType = 'institute';
+      if (role === 'teacher') {
+        planType = 'teacher';
+      } else if (role === 'supplier' || role === 'vendor') {
+        planType = 'vendor';
+      }
 
-      subscription = {
-        planId: freePlan._id,
-        status: 'active' as const,
-        paymentStatus: 'completed' as const,
-        startDate,
-        endDate,
-        listingsUsed: 0,
-        listingsLimit: freePlan.features.maxListings,
-        jobPostsUsed: 0,
-        jobPostsLimit: freePlan.features.maxJobPosts,
-        browseCount: 0,
-        browseCountLimit: freePlan.features.maxBrowsesPerMonth,
-        lastBrowseReset: startDate,
-        notes: 'Free plan assigned on signup'
-      };
+      // Find requested plan or default free plan
+      let selectedPlan;
+      if (planId) {
+        selectedPlan = await SubscriptionPlan.findById(planId);
+      }
+      
+      if (!selectedPlan) {
+        selectedPlan = await SubscriptionPlan.findOne({
+          planType,
+          price: 0,
+          isActive: true
+        });
+      }
+
+      if (selectedPlan) {
+        const startDate = new Date();
+        const endDate = new Date();
+        endDate.setDate(endDate.getDate() + selectedPlan.duration);
+
+        subscription = {
+          planId: selectedPlan._id,
+          status: 'active' as const,
+          paymentStatus: selectedPlan.price === 0 ? 'completed' : 'pending' as const,
+          startDate,
+          endDate,
+          listingsUsed: 0,
+          listingsLimit: selectedPlan.features.maxListings,
+          jobPostsUsed: 0,
+          jobPostsLimit: selectedPlan.features.maxJobPosts,
+          browseCount: 0,
+          browseCountLimit: selectedPlan.features.maxBrowsesPerMonth,
+          lastBrowseReset: startDate,
+          notes: planId ? `Assigned ${selectedPlan.displayName} plan on signup` : 'Free plan assigned on signup'
+        };
+      }
     }
 
     // Create user

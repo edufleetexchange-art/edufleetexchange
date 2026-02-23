@@ -5,7 +5,7 @@ export interface IVehicle extends Omit<Document, 'model'> {
   manufacturer: string;
   vehicleModel: string;
   year: number;
-  type: 'school-bus' | 'minibus' | 'van' | 'truck';
+  type: 'bus' | 'school-bus' | 'minibus' | 'van' | 'truck';
   price: number;
   registrationNumber: string;
   mileage: number;
@@ -18,6 +18,7 @@ export interface IVehicle extends Omit<Document, 'model'> {
   sellerEmail: string;
   sellerPhone?: string;
   isPriority: boolean;
+  assistedBy?: mongoose.Types.ObjectId;
   status: 'pending' | 'approved' | 'rejected';
   insurance?: {
     valid: boolean;
@@ -68,7 +69,7 @@ const vehicleSchema = new Schema<IVehicle>(
     type: {
       type: String,
       required: [true, 'Type is required'],
-      enum: ['school-bus', 'minibus', 'van', 'truck'],
+      enum: ['bus', 'school-bus', 'minibus', 'van', 'truck'],
     },
     price: {
       type: Number,
@@ -128,6 +129,10 @@ const vehicleSchema = new Schema<IVehicle>(
       type: Boolean,
       default: false,
     },
+    assistedBy: {
+      type: Schema.Types.ObjectId,
+      ref: 'User',
+    },
     status: {
       type: String,
       enum: ['pending', 'approved', 'rejected'],
@@ -168,4 +173,4 @@ vehicleSchema.index({ manufacturer: 1, vehicleModel: 1 });
 vehicleSchema.index({ isPriority: 1, status: 1 });
 vehicleSchema.index({ createdAt: -1 });
 
-export default mongoose.model<IVehicle>('Vehicle', vehicleSchema);
+export default mongoose.model<IVehicle>('Vehicle', vehicleSchema);600

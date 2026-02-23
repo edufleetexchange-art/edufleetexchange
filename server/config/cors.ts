@@ -1,42 +1,31 @@
-/**
- * CORS Configuration
- * Handles Cross-Origin Resource Sharing settings
- */
-
-import { CorsOptions } from 'cors';
-import { ENV, isProduction } from './environment.js';
+import type { CorsOptions } from "cors";
+import { ENV, isProduction } from "./environment.js";
 
 export const corsConfig: CorsOptions = {
   origin: (origin, callback) => {
     // Allow requests with no origin (mobile apps, Postman, etc.)
-    if (!origin) {
-      return callback(null, true);
-    }
+    if (!origin) return callback(null, true);
 
     const allowedOrigins = [
       ENV.CLIENT_URL,
-      'http://localhost:3000',
-      'http://localhost:5173',
-      'http://localhost:5174',
-    ];
+      "http://localhost:3000",
+      "http://localhost:5173",
+      "http://localhost:5174",
+    ].filter(Boolean);
 
-    // In production, only allow specified origins
     if (isProduction) {
-      if (allowedOrigins.includes(origin)) {
-        callback(null, true);
-      } else {
-        callback(new Error('Not allowed by CORS'));
-      }
-    } else {
-      // In development, allow all origins
-      callback(null, true);
+      if (allowedOrigins.includes(origin)) return callback(null, true);
+      return callback(new Error("Not allowed by CORS"));
     }
-  },
-  credentials: true,
-  methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
-  exposedHeaders: ['Content-Range', 'X-Content-Range'],
-  maxAge: 86400, // 24 hours
-};
 
-export default corsConfig;
+    // In dev: allow from list (or you can allow all in dev if you want)
+    if (allowedOrigins.includes(origin)) return callback(null, true);
+    return callback(new Error("Not allowed by CORS"));
+  },
+
+  // ✅ THIS fixes your error
+  allowedHeaders: ["Content-Type", "Authorization", "Cache-Control", "Pragma"],
+  methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+
+  credentials: true,
+};

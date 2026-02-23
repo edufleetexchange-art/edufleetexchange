@@ -5,7 +5,8 @@ export interface IUser extends Document {
   name: string;
   email: string;
   password: string;
-  role: 'guest' | 'institute' | 'admin' | 'teacher' | 'vendor';
+  role: 'guest' | 'institute' | 'admin' | 'teacher' | 'vendor' | 'marketing' | 'sales';
+  employeeId?: string;
   instituteName?: string;
   contactPerson?: string;
   avatar?: string;
@@ -35,8 +36,8 @@ export interface IUser extends Document {
   };
   isVerified: boolean;
   isActive: boolean;
-  instituteSearchability?: boolean;
   isAvailable: boolean;
+  instituteSearchability?: boolean;
   experience?: number;
   qualifications?: string[];
   subjects?: string[];
@@ -78,8 +79,21 @@ const userSchema = new Schema<IUser>(
     },
     role: {
       type: String,
-      enum: ['guest', 'institute', 'admin', 'teacher', 'vendor'],
+      enum: ['guest', 'institute', 'admin', 'teacher', 'vendor', 'marketing', 'sales'],
       default: 'institute',
+    },
+    employeeId: {
+      type: String,
+      unique: true,
+      sparse: true,
+      trim: true,
+      // Only set the value if it's a non-empty string, otherwise don't set it at all
+      set: function(v: string | undefined | null): string | undefined {
+        if (v === null || v === undefined || v === '') {
+          return undefined;
+        }
+        return v.trim();
+      },
     },
     instituteName: {
       type: String,
@@ -188,12 +202,18 @@ const userSchema = new Schema<IUser>(
 
 // Hash password before saving
 userSchema.pre('save', async function () {
-  if (!this.isModified('password')) {
+  // Only hash password if it's modified and exists
+  if (!this.isModified('password') || !this.password) {
     return;
   }
   
-  const salt = await bcrypt.genSalt(10);
-  this.password = await bcrypt.hash(this.password, salt);
+  try {
+    const salt = await bcrypt.genSalt(10);
+    this.password = await bcrypt.hash(this.password, salt);
+  } catch (error) {
+    console.error('Error hashing password:', error);
+    throw new Error('Failed to hash password');
+  }
 });
 
 // Method to compare password

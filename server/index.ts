@@ -26,6 +26,11 @@ import uploadRoutes from './routes/upload.js';
 import subscriptionRoutes from './routes/subscriptions.js';
 import userRoutes from './routes/users.js';
 import adRoutes from './routes/ads.js';
+import marketingRoutes from './routes/marketing.js';
+import salesRoutes from './routes/sales.js';
+import personaAccessRoutes from './routes/personaAccessRoutes.js';
+import crmRoutes from './routes/crm.js';
+import publicRoutes from './routes/public.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -63,6 +68,7 @@ app.get('/health', (req: Request, res: Response) => {
 // API Routes (using API_PREFIX from config)
 const apiPrefix = ENV.API_PREFIX;
 app.use(`${apiPrefix}/auth`, authRoutes);
+app.use(`${apiPrefix}/public`, publicRoutes);
 app.use(`${apiPrefix}/vehicles`, vehicleRoutes);
 app.use(`${apiPrefix}/admin`, adminRoutes);
 app.use(`${apiPrefix}/jobs`, jobRoutes);
@@ -70,8 +76,12 @@ app.use(`${apiPrefix}/suppliers`, supplierRoutes);
 app.use(`${apiPrefix}/notifications`, notificationRoutes);
 app.use(`${apiPrefix}/upload`, uploadRoutes);
 app.use(`${apiPrefix}/subscriptions`, subscriptionRoutes);
+app.use(`${apiPrefix}/marketing`, marketingRoutes);
+app.use(`${apiPrefix}/sales`, salesRoutes);
 app.use(`${apiPrefix}/users`, userRoutes);
 app.use(`${apiPrefix}/ads`, adRoutes);
+app.use(`${apiPrefix}/access`, personaAccessRoutes);
+app.use(`${apiPrefix}/crm`, crmRoutes);
 
 // 404 handler for undefined routes
 app.use((req: Request, res: Response) => {
@@ -114,7 +124,7 @@ app.use((err: any, req: express.Request, res: express.Response, next: express.Ne
 });
 
 // Start server
-const server = app.listen(5000, () => {
+const server = app.listen(ENV.PORT, () => {
   console.log('╔════════════════════════════════════════╗');
   console.log(`║  🚀 Server running on port ${ENV.PORT}       ║`);
   console.log(`║  📦 Environment: ${ENV.NODE_ENV.padEnd(18)}║`);
