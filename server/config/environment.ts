@@ -6,7 +6,7 @@
 export const ENV = {
   // Server
   NODE_ENV: process.env.NODE_ENV || 'development',
-  PORT: parseInt(process.env.PORT || '5000', 10),
+  PORT: parseInt(process.env.PORT || '3000', 10),
   
   // Database
    MONGODB_URI:'mongodb+srv://edufleetexchange:WuocmnQA3SD5HuyF@cluster0.fju6rdz.mongodb.net/EDUFLEETEXCHANGE?retryWrites=true&w=majority&appName=EDUFLEETEXCHANGE',
