@@ -6,6 +6,15 @@ import {
   togglePriority,
   getAllUsers,
   updateUserStatus,
+  createUser,
+  deleteUser,
+  getAuditLogs,
+  getCategories,
+  createCategory,
+  updateCategory,
+  deleteCategory,
+  getSettings,
+  updateSetting,
 } from '../controllers/adminController.js';
 import { approveSupplierStatus } from '../controllers/supplierController.js';
 import { authenticate, authorize } from '../middleware/auth.js';
@@ -14,14 +23,31 @@ const router = express.Router();
 
 // All routes require admin authentication
 router.use(authenticate);
+
+// Specific permissions for marketing and sales
+router.get('/users', authorize('admin', 'marketing', 'sales'), getAllUsers);
+router.post('/users', authorize('admin', 'sales'), createUser);
+router.put('/users/:id/status', authorize('admin', 'sales'), updateUserStatus);
+
+// Admin only routes
 router.use(authorize('admin'));
 
 router.get('/stats', getDashboardStats);
 router.get('/pending', getPendingVehicles);
 router.put('/approve/:id', approveVehicle);
 router.put('/priority/:id', togglePriority);
-router.get('/users', getAllUsers);
-router.put('/users/:id/status', updateUserStatus);
+router.get('/audit-logs', getAuditLogs);
+router.delete('/users/:id', deleteUser);
 router.put('/suppliers/:id/approve', approveSupplierStatus);
+
+// Categories
+router.get('/categories', getCategories);
+router.post('/categories', createCategory);
+router.put('/categories/:id', updateCategory);
+router.delete('/categories/:id', deleteCategory);
+
+// System Settings
+router.get('/settings', getSettings);
+router.put('/settings/:key', updateSetting);
 
 export default router;

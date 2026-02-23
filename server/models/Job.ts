@@ -3,6 +3,7 @@ import mongoose, { Schema, Document } from 'mongoose';
 export interface IJob extends Document {
   title: string;
   instituteName: string;
+  department: string;
   location: {
     city: string;
     state: string;
@@ -44,6 +45,11 @@ const jobSchema = new Schema<IJob>(
     instituteName: {
       type: String,
       required: [true, 'Institute name is required'],
+      trim: true,
+    },
+    department: {
+      type: String,
+      required: [true, 'Department is required'],
       trim: true,
     },
     location: {
@@ -152,6 +158,7 @@ const jobSchema = new Schema<IJob>(
 // Indexes
 jobSchema.index({ instituteId: 1, status: 1 });
 jobSchema.index({ status: 1, createdAt: -1 });
+jobSchema.index({ department: 1 });
 jobSchema.index({ 'location.city': 1, 'location.state': 1 });
 jobSchema.index({ subjects: 1 });
 

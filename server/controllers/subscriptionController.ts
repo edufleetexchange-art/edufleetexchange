@@ -108,6 +108,22 @@ export const getUserSubscription = async (req: Request, res: Response) => {
     if (!user) {
       return res.status(404).json({ error: 'User not found' });
     }
+
+    // Skip lazy initialization for company users
+    if (isCompanyUser(user.role)) {
+      return res.json({
+        planName: 'Company Bypass',
+        status: 'active',
+        paymentStatus: 'completed',
+        listingsUsed: 0,
+        listingsLimit: 999999,
+        jobPostsUsed: 0,
+        jobPostsLimit: 999999,
+        browseCount: 0,
+        browseCountLimit: 999999,
+        notes: 'Admin/Sales/Marketing bypass'
+      });
+    }
     
     // Lazy initialization: If no subscription, try to assign default free plan
     if (!user.subscription || !user.subscription.planId) {
@@ -137,11 +153,11 @@ export const getUserSubscription = async (req: Request, res: Response) => {
           startDate,
           endDate,
           listingsUsed: 0,
-          listingsLimit: freePlan.features.maxListings,
+          listingsLimit: freePlan.features.maxVehicleListings || 0,
           jobPostsUsed: 0,
-          jobPostsLimit: freePlan.features.maxJobPosts,
+          jobPostsLimit: freePlan.features.maxJobPosts || 0,
           browseCount: 0,
-          browseCountLimit: freePlan.features.maxBrowsesPerMonth,
+          browseCountLimit: freePlan.features.maxBrowsesPerMonth || 0,
           lastBrowseReset: startDate,
           notes: 'Free plan assigned automatically'
         };
@@ -245,12 +261,12 @@ export const assignSubscription = async (req: Request, res: Response) => {
       paymentStatus: plan.price > 0 ? 'pending' : 'completed',
       startDate: startDate,
       endDate: endDate,
-      listingsLimit: customListingsLimit || plan.features.maxListings,
+      listingsLimit: customListingsLimit || plan.features.maxVehicleListings || 0,
       listingsUsed: 0,
       jobPostsUsed: 0,
-      jobPostsLimit: plan.features.maxJobPosts,
+      jobPostsLimit: plan.features.maxJobPosts || 0,
       browseCount: 0,
-      browseCountLimit: customBrowseLimit || plan.features.maxBrowsesPerMonth,
+      browseCountLimit: customBrowseLimit || plan.features.maxBrowsesPerMonth || 0,
       lastBrowseReset: startDate,
       notes: notes || '',
     };
@@ -316,9 +332,9 @@ export const changePlan = async (req: Request, res: Response) => {
     user.subscription.paymentStatus = plan.price > 0 ? 'pending' : 'completed';
     user.subscription.startDate = startDate;
     user.subscription.endDate = endDate;
-    user.subscription.listingsLimit = plan.features.maxListings;
-    user.subscription.jobPostsLimit = plan.features.maxJobPosts;
-    user.subscription.browseCountLimit = plan.features.maxBrowsesPerMonth;
+    user.subscription.listingsLimit = plan.features.maxVehicleListings || 0;
+    user.subscription.jobPostsLimit = plan.features.maxJobPosts || 0;
+    user.subscription.browseCountLimit = plan.features.maxBrowsesPerMonth || 0;
     user.subscription.notes = notes || `Plan changed by admin to ${plan.displayName}`;
     // Note: updatedAt is handled by mongoose timestamps on the user document
     
@@ -783,9 +799,9 @@ export const updateSubscriptionRequest = async (req: Request, res: Response) => 
           endDate.setDate(endDate.getDate() + plan.duration);
 
           user.subscription.planId = plan._id as any;
-          user.subscription.listingsLimit = plan.features.maxListings;
-          user.subscription.browseCountLimit = plan.features.maxBrowsesPerMonth;
-          user.subscription.jobPostsLimit = plan.features.maxJobPosts;
+          user.subscription.listingsLimit = plan.features.maxVehicleListings || 0;
+          user.subscription.browseCountLimit = plan.features.maxBrowsesPerMonth || 0;
+          user.subscription.jobPostsLimit = plan.features.maxJobPosts || 0;
           
           // Reset usage if it's a renewal or upgrade
           // This gives them a fresh start with the new plan
@@ -860,6 +876,10 @@ const checkAndResetBillingPeriod = async (user: any) => {
   return false;
 };
 
+const isCompanyUser = (role: string) => {
+  return ['admin', 'sales', 'marketing'].includes(role);
+};
+
 // Check browse limit
 export const checkBrowseLimit = async (req: AuthRequest, res: Response) => {
   try {
@@ -872,6 +892,17 @@ export const checkBrowseLimit = async (req: AuthRequest, res: Response) => {
     
     if (!user) {
       return res.status(404).json({ error: 'User not found' });
+    }
+
+    // Admin, Sales, and Marketing bypass subscription checks
+    if (isCompanyUser(user.role)) {
+      return res.json({
+        allowed: true,
+        remaining: 999999,
+        limitReached: false,
+        subscription: null,
+        message: 'Company user bypass',
+      });
     }
 
     // Check and reset billing period if needed
@@ -984,6 +1015,17 @@ export const checkListingLimit = async (req: AuthRequest, res: Response) => {
       return res.status(404).json({ error: 'User not found' });
     }
 
+    // Admin, Sales, and Marketing bypass subscription checks
+    if (isCompanyUser(user.role)) {
+      return res.json({
+        allowed: true,
+        remaining: 999999,
+        limitReached: false,
+        subscription: null,
+        message: 'Company user bypass',
+      });
+    }
+
     // No subscription - use free plan limits (2 listings)
     if (!user.subscription || !user.subscription.planId) {
       return res.json({
@@ -1051,6 +1093,15 @@ export const incrementListingCount = async (req: AuthRequest, res: Response) => 
     
     if (!user) {
       return res.status(404).json({ error: 'User not found' });
+    }
+
+    // Admin, Sales, and Marketing bypass subscription checks
+    if (isCompanyUser(user.role)) {
+      return res.json({
+        success: true,
+        listingsUsed: 0,
+        message: 'Company user bypass - count not tracked',
+      });
     }
 
     if (!user.subscription || user.subscription.status !== 'active') {
@@ -1125,7 +1176,18 @@ export const checkJobPostLimit = async (req: AuthRequest, res: Response) => {
       return res.status(404).json({ error: 'User not found' });
     }
 
-    // No subscription
+    // Admin, Sales, and Marketing bypass subscription checks
+    if (isCompanyUser(user.role)) {
+      return res.json({
+        allowed: true,
+        remaining: 999999,
+        limitReached: false,
+        subscription: null,
+        message: 'Company user bypass',
+      });
+    }
+
+    // No subscription - use free plan limits (2 job posts)
     if (!user.subscription || !user.subscription.planId) {
       return res.json({
         allowed: false,
@@ -1192,6 +1254,15 @@ export const incrementJobPostCount = async (req: AuthRequest, res: Response) => 
     
     if (!user) {
       return res.status(404).json({ error: 'User not found' });
+    }
+
+    // Admin, Sales, and Marketing bypass subscription checks
+    if (isCompanyUser(user.role)) {
+      return res.json({
+        success: true,
+        jobPostsUsed: 0,
+        message: 'Company user bypass - count not tracked',
+      });
     }
 
     if (!user.subscription || user.subscription.status !== 'active') {

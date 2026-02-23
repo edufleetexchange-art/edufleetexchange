@@ -20,17 +20,17 @@ router.get('/featured', getAllJobs); // Alias for featured jobs
 router.get('/', getAllJobs);
 
 // Protected specific routes MUST come before :id
-router.get('/my/listings', protect, restrictTo('institute', 'admin'), getInstituteJobs);
-router.get('/applications/list', protect, restrictTo('teacher', 'institute', 'admin'), getApplications);
+router.get('/my/listings', protect, restrictTo('institute', 'sales', 'admin'), getInstituteJobs);
+router.get('/applications/list', protect, restrictTo('teacher', 'institute', 'sales', 'admin'), getApplications);
 router.get('/applications/my', protect, restrictTo('teacher'), getApplications); // Alias for teacher's own applications
 
 // Public dynamic route
 router.get('/:id', getJobById);
 
 // Protected CRUD operations
-router.post('/', protect, restrictTo('institute', 'admin'), createJob);
-router.put('/:id', protect, restrictTo('institute', 'admin'), updateJob);
-router.delete('/:id', protect, restrictTo('institute', 'admin'), deleteJob);
+router.post('/', protect, restrictTo('institute', 'sales', 'admin'), createJob);
+router.put('/:id', protect, restrictTo('institute', 'sales', 'admin'), updateJob);
+router.delete('/:id', protect, restrictTo('institute', 'sales', 'admin'), deleteJob);
 
 // Teacher routes
 router.post('/:id/apply', protect, restrictTo('teacher'), applyToJob);

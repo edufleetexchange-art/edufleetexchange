@@ -1,6 +1,8 @@
 import { Response } from 'express';
 import Vehicle from '../models/Vehicle.js';
 import Notification from '../models/Notification.js';
+import User from '../models/User.js';
+import { logAction } from '../utils/auditLogger.js';
 import { AuthRequest } from '../middleware/auth.js';
 import { ISubscriptionPlan } from '../models/SubscriptionPlan.js';
 
@@ -48,14 +50,34 @@ export const getVehicles = async (req: AuthRequest, res: Response): Promise<void
     // Build query
     const query: any = {};
 
-    // Only show approved vehicles to non-admin users
-    if (!req.user || req.user.role !== 'admin') {
-      query.status = 'approved';
-      
-      // Removed subscription data delay to ensure logged-in users can see listings
-      // The delay logic was incorrectly hiding all recent listings for new users
-    } else if (status) {
-      query.status = status;
+    // Visibility logic
+    if (status && status !== 'all') {
+      // If specific status requested (e.g. from admin or owner filters)
+      if (status === 'approved') {
+        // For 'approved' filter, also include owned/assisted pending/rejected listings for logged-in users
+        if (req.user && req.user.role !== 'admin') {
+          query.$or = [
+            { status: 'approved' },
+            { sellerId: req.user._id },
+            { assistedBy: req.user._id }
+          ];
+        } else {
+          query.status = 'approved';
+        }
+      } else {
+        query.status = status;
+      }
+    } else if (!req.user || req.user.role !== 'admin') {
+      // Default visibility for non-admins: approved listings OR owned/assisted listings
+      if (req.user) {
+        query.$or = [
+          { status: 'approved' },
+          { sellerId: req.user._id },
+          { assistedBy: req.user._id }
+        ];
+      } else {
+        query.status = 'approved';
+      }
     }
 
     if (searchTerm) {
@@ -140,10 +162,14 @@ export const getVehicle = async (req: AuthRequest, res: Response): Promise<void>
       // Removed delay check to allow visibility
     }
 
-    // Only show approved vehicles to non-admin/non-owner users
+    // Only show approved vehicles to non-admin/non-owner/non-assistant users
     if (
       vehicle.status !== 'approved' &&
-      (!req.user || (req.user.role !== 'admin' && req.user._id.toString() !== vehicle.sellerId.toString()))
+      (!req.user || (
+        req.user.role !== 'admin' && 
+        req.user._id.toString() !== vehicle.sellerId.toString() &&
+        (!vehicle.assistedBy || req.user._id.toString() !== vehicle.assistedBy.toString())
+      ))
     ) {
       res.status(404).json({
         success: false,
@@ -187,7 +213,7 @@ export const createVehicle = async (req: AuthRequest, res: Response): Promise<vo
     }
 
     // Check subscription permissions for vehicle advertising
-    if (req.user.role !== 'admin') {
+    if (req.user.role !== 'admin' && req.user.role !== 'sales') {
       const plan = req.user.subscription?.planId as unknown as ISubscriptionPlan;
       
       if (plan && !plan.features.canAdvertiseVehicles) {
@@ -213,19 +239,52 @@ export const createVehicle = async (req: AuthRequest, res: Response): Promise<vo
       }
     }
 
+    let sellerId = req.user._id;
+    let sellerName = req.user.instituteName || req.user.name;
+    let sellerEmail = req.user.email;
+    let sellerPhone = req.user.phone;
+    let actualSeller: any = null;
+
+    // If sales or admin, allow providing seller details (listing on behalf of school)
+    if ((req.user.role === 'admin' || req.user.role === 'sales') && req.body.sellerId) {
+      actualSeller = await User.findById(req.body.sellerId);
+      if (actualSeller) {
+        sellerId = actualSeller._id;
+        sellerName = actualSeller.instituteName || actualSeller.name;
+        sellerEmail = actualSeller.email;
+        sellerPhone = actualSeller.phone;
+      }
+    }
+
     const vehicleData = {
       ...req.body,
-      sellerId: req.user._id,
-      sellerName: req.user.instituteName || req.user.name,
-      sellerEmail: req.user.email,
-      sellerPhone: req.user.phone,
-      status: 'pending',
+      sellerId,
+      sellerName,
+      sellerEmail,
+      sellerPhone,
+      status: (req.user.role === 'admin' || req.user.role === 'sales') ? 'approved' : 'pending',
     };
 
     const vehicle = await Vehicle.create(vehicleData);
 
-    // Update listingsUsed counter
-    if (req.user.subscription) {
+    // Log action if staff member assisted
+    if (req.user.role === 'sales' || req.user.role === 'admin') {
+      await logAction({
+        user: req.user,
+        action: 'ASSISTED_VEHICLE_LISTING',
+        targetId: vehicle._id.toString(),
+        targetType: 'Vehicle',
+        details: `Assisted in listing vehicle "${vehicle.title}" for seller ${sellerName} (${sellerId})`,
+        req
+      });
+    }
+
+    // Update listingsUsed counter for the actual seller (Institute)
+    if (actualSeller && actualSeller.subscription) {
+      actualSeller.subscription.listingsUsed = (actualSeller.subscription.listingsUsed || 0) + 1;
+      await actualSeller.save();
+    } else if (req.user.subscription && req.user.role !== 'sales') {
+      // Normal flow (Institute creating for themselves)
       req.user.subscription.listingsUsed = (req.user.subscription.listingsUsed || 0) + 1;
       await (req.user as any).save();
     }
@@ -271,8 +330,12 @@ export const updateVehicle = async (req: AuthRequest, res: Response): Promise<vo
       return;
     }
 
-    // Check ownership
-    if (vehicle.sellerId.toString() !== req.user._id.toString()) {
+    // Check ownership or assistant (if pending)
+    const isOwner = vehicle.sellerId.toString() === req.user._id.toString();
+    const isAssistant = vehicle.assistedBy?.toString() === req.user._id.toString();
+    const isAdmin = req.user.role === 'admin';
+
+    if (!isOwner && !isAdmin && (!isAssistant || vehicle.status !== 'pending')) {
       res.status(403).json({
         success: false,
         error: 'Not authorized to update this vehicle',
@@ -326,11 +389,12 @@ export const deleteVehicle = async (req: AuthRequest, res: Response): Promise<vo
       return;
     }
 
-    // Check ownership or admin
-    if (
-      vehicle.sellerId.toString() !== req.user._id.toString() &&
-      req.user.role !== 'admin'
-    ) {
+    // Check ownership, admin, or assistant (if pending)
+    const isOwner = vehicle.sellerId.toString() === req.user._id.toString();
+    const isAssistant = vehicle.assistedBy?.toString() === req.user._id.toString();
+    const isAdmin = req.user.role === 'admin';
+
+    if (!isOwner && !isAdmin && (!isAssistant || vehicle.status !== 'pending')) {
       res.status(403).json({
         success: false,
         error: 'Not authorized to delete this vehicle',

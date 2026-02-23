@@ -18,15 +18,15 @@ router.get('/priority', getPriorityListings);
 router.get('/recent', getRecentListings);
 
 // Protected routes - must be before :id route
-router.get('/my/listings', authenticate, authorize('institute'), getMyListings);
+router.get('/my/listings', authenticate, authorize('institute', 'sales', 'admin'), getMyListings);
 
 // General routes
 router.get('/', optionalAuth, getVehicles);
 router.get('/:id', optionalAuth, getVehicle);
 
 // Protected CRUD operations
-router.post('/', authenticate, authorize('institute', 'admin'), createVehicle);
-router.put('/:id', authenticate, authorize('institute', 'admin'), updateVehicle);
-router.delete('/:id', authenticate, authorize('institute', 'admin'), deleteVehicle);
+router.post('/', authenticate, authorize('institute', 'sales', 'admin'), createVehicle);
+router.put('/:id', authenticate, authorize('institute', 'sales', 'admin'), updateVehicle);
+router.delete('/:id', authenticate, authorize('institute', 'sales', 'admin'), deleteVehicle);
 
 export default router;
