@@ -671,9 +671,22 @@ export const createCategory = async (req: AuthRequest, res: Response): Promise<v
   try {
     const { name, slug, type, description, order } = req.body;
 
+    const finalSlug = (slug || name.toLowerCase().replace(/\s+/g, '-')).toLowerCase().trim();
+
+    // Check for existing category with same slug + type before inserting
+    const existing = await Category.findOne({ slug: finalSlug, type });
+    if (existing) {
+      res.status(400).json({
+        success: false,
+        error: `A ${type} category with slug "${finalSlug}" already exists. Please use a different name or slug.`,
+        code: 'DUPLICATE_CATEGORY',
+      });
+      return;
+    }
+
     const category = await Category.create({
       name,
-      slug: slug || name.toLowerCase().replace(/\s+/g, '-'),
+      slug: finalSlug,
       type,
       description,
       order: order || 0,
@@ -698,6 +711,17 @@ export const createCategory = async (req: AuthRequest, res: Response): Promise<v
     });
   } catch (error: any) {
     console.error('Create category error:', error);
+
+    // Handle MongoDB duplicate key error as fallback
+    if (error.code === 11000) {
+      res.status(400).json({
+        success: false,
+        error: 'A category with this slug and type already exists. Please use a different name or slug.',
+        code: 'DUPLICATE_CATEGORY',
+      });
+      return;
+    }
+
     res.status(400).json({
       success: false,
       error: error.message || 'Failed to create category',
@@ -714,9 +738,26 @@ export const updateCategory = async (req: AuthRequest, res: Response): Promise<v
     const { name, slug, description, order, isActive } = req.body;
     const { id } = req.params;
 
+    // If slug is being changed, check for duplicates
+    if (slug) {
+      const finalSlug = slug.toLowerCase().trim();
+      const existingCategory = await Category.findById(id);
+      if (existingCategory && finalSlug !== existingCategory.slug) {
+        const duplicate = await Category.findOne({ slug: finalSlug, type: existingCategory.type, _id: { $ne: id } });
+        if (duplicate) {
+          res.status(400).json({
+            success: false,
+            error: `A ${existingCategory.type} category with slug "${finalSlug}" already exists.`,
+            code: 'DUPLICATE_CATEGORY',
+          });
+          return;
+        }
+      }
+    }
+
     const category = await Category.findByIdAndUpdate(
       id,
-      { name, slug, description, order, isActive },
+      { name, slug: slug?.toLowerCase().trim(), description, order, isActive },
       { new: true, runValidators: true }
     );
 
@@ -748,6 +789,16 @@ export const updateCategory = async (req: AuthRequest, res: Response): Promise<v
     });
   } catch (error: any) {
     console.error('Update category error:', error);
+
+    if (error.code === 11000) {
+      res.status(400).json({
+        success: false,
+        error: 'A category with this slug and type already exists.',
+        code: 'DUPLICATE_CATEGORY',
+      });
+      return;
+    }
+
     res.status(400).json({
       success: false,
       error: error.message || 'Failed to update category',
