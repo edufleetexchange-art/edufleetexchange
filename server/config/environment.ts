@@ -9,8 +9,7 @@ export const ENV = {
   PORT: parseInt(process.env.PORT || '3000', 10),
   
   // Database
-   MONGODB_URI:'mongodb+srv://edufleetexchange:WuocmnQA3SD5HuyF@cluster0.fju6rdz.mongodb.net/EDUFLEETEXCHANGE?retryWrites=true&w=majority&appName=EDUFLEETEXCHANGE',
-  
+     MONGODB_URI:'mongodb+srv://edufleetexchange:WuocmnQA3SD5HuyF@cluster0.fju6rdz.mongodb.net/EDUFLEETEXCHANGE?retryWrites=true&w=majority&appName=EDUFLEETEXCHANGE',
   // JWT
   JWT_SECRET: process.env.JWT_SECRET || 'your-secret-key-change-in-production',
   JWT_EXPIRES_IN: process.env.JWT_EXPIRES_IN || '7d',
