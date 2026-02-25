@@ -68,7 +68,7 @@ const vehicleSchema = new Schema<IVehicle>(
     },
     type: {
       type: String,
-      required: [true, 'Type is required'],
+      required: [false, 'Type is required'],
       enum: ['bus', 'school-bus', 'minibus', 'van', 'truck'],
     },
     price: {
