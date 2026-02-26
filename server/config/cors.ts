@@ -8,6 +8,8 @@ export const corsConfig: CorsOptions = {
 
     const allowedOrigins = [
       ENV.CLIENT_URL,
+      "https://www.edufleetexchange.com",
+      
       "http://localhost:3000",
       "http://localhost:5173",
       "http://localhost:5174",
