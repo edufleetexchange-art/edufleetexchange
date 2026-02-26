@@ -9,7 +9,6 @@ import * as path from 'path';
 import * as fs from 'fs';
 import { fileURLToPath } from 'url';
 
-
 // Load environment variables first
 dotenv.config();
 
@@ -133,6 +132,22 @@ const server = app.listen(ENV.PORT, () => {
   console.log(`║  📦 Environment: ${ENV.NODE_ENV.padEnd(18)}║`);
   console.log(`║  🌐 API: http://localhost:${ENV.PORT}${apiPrefix}  ║`);
   console.log('╚════════════════════════════════════════╝');
+  console.log('\n📋 Registered API routes:');
+  console.log(`  ${apiPrefix}/auth`);
+  console.log(`  ${apiPrefix}/public          (GET /categories, GET /settings)`);
+  console.log(`  ${apiPrefix}/vehicles`);
+  console.log(`  ${apiPrefix}/admin           (GET/POST /categories, GET/PUT /settings)`);
+  console.log(`  ${apiPrefix}/jobs`);
+  console.log(`  ${apiPrefix}/suppliers`);
+  console.log(`  ${apiPrefix}/notifications`);
+  console.log(`  ${apiPrefix}/upload`);
+  console.log(`  ${apiPrefix}/subscriptions`);
+  console.log(`  ${apiPrefix}/marketing`);
+  console.log(`  ${apiPrefix}/sales`);
+  console.log(`  ${apiPrefix}/users`);
+  console.log(`  ${apiPrefix}/ads`);
+  console.log(`  ${apiPrefix}/access`);
+  console.log(`  ${apiPrefix}/crm`);
 });
 
 // Graceful shutdown
