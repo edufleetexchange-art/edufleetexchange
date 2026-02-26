@@ -6,28 +6,27 @@ export const corsConfig: CorsOptions = {
     // Allow requests with no origin (mobile apps, Postman, etc.)
     if (!origin) return callback(null, true);
 
-    const allowedOrigins = [
+  const allowedOrigins = [
       ENV.CLIENT_URL,
       "https://www.edufleetexchange.com",
-      
       "http://localhost:3000",
       "http://localhost:5173",
       "http://localhost:5174",
     ].filter(Boolean);
 
-    if (isProduction) {
-      if (allowedOrigins.includes(origin)) return callback(null, true);
-      return callback(new Error("Not allowed by CORS"));
+    // ✅ Allow all Vercel preview deployments
+    const isVercelPreview =
+      origin.includes(".vercel.app") &&
+      origin.includes("edufleetexchange");
+
+    if (allowedOrigins.includes(origin) || isVercelPreview) {
+      return callback(null, true);
     }
 
-    // In dev: allow from list (or you can allow all in dev if you want)
-    if (allowedOrigins.includes(origin)) return callback(null, true);
     return callback(new Error("Not allowed by CORS"));
   },
 
-  // ✅ THIS fixes your error
   allowedHeaders: ["Content-Type", "Authorization", "Cache-Control", "Pragma"],
   methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-
   credentials: true,
 };
