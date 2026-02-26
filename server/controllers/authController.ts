@@ -1,9 +1,29 @@
-import { Response } from 'express';
-import jwt from 'jsonwebtoken';
-import User from '../models/User.js';
-import SubscriptionPlan from '../models/SubscriptionPlan.js';
-import { JWT_CONFIG } from '../config/jwt.js';
-import { AuthRequest } from '../middleware/auth.js';
+import { Response } from "express";
+import jwt from "jsonwebtoken";
+import User from "../models/User.js";
+import SubscriptionPlan from "../models/SubscriptionPlan.js";
+import { JWT_CONFIG } from "../config/jwt.js";
+import { AuthRequest } from "../middleware/auth.js";
+
+// ---- Types (TypeScript fixes only; logic unchanged) ----
+type PaymentStatus = "pending" | "completed" | "failed";
+type SubscriptionStatus = "active" | "inactive" | "suspended" | "expired";
+
+interface SubscriptionPayload {
+  planId: any;
+  status: SubscriptionStatus;
+  paymentStatus: PaymentStatus;
+  startDate: Date;
+  endDate: Date;
+  listingsUsed: number;
+  listingsLimit?: number;
+  jobPostsUsed: number;
+  jobPostsLimit?: number;
+  browseCount: number;
+  browseCountLimit?: number;
+  lastBrowseReset: Date;
+  notes: string;
+}
 
 // Generate JWT token
 const generateToken = (userId: string): string => {
@@ -17,8 +37,20 @@ const generateToken = (userId: string): string => {
 // @access  Public
 export const signup = async (req: AuthRequest, res: Response): Promise<void> => {
   try {
-    const { name, email, password, role, instituteName, contactPerson, phone,
-      experience, qualifications, subjects, bio, location, planId
+    const {
+      name,
+      email,
+      password,
+      role,
+      instituteName,
+      contactPerson,
+      phone,
+      experience,
+      qualifications,
+      subjects,
+      bio,
+      location,
+      planId,
     } = req.body;
 
     // Check if user exists
@@ -26,36 +58,36 @@ export const signup = async (req: AuthRequest, res: Response): Promise<void> => 
     if (existingUser) {
       res.status(400).json({
         success: false,
-        error: 'User with this email already exists',
-        code: 'USER_EXISTS',
+        error: "User with this email already exists",
+        code: "USER_EXISTS",
       });
       return;
     }
 
     // Determine plan type based on role
-    // Default to institute if not specified or unrecognized
-    let subscription = undefined;
-    const internalRoles = ['admin', 'marketing', 'sales'];
+    let subscription: SubscriptionPayload | undefined = undefined;
+    const internalRoles = ["admin", "marketing", "sales"];
 
     if (!internalRoles.includes(role)) {
-      let planType = 'institute';
-      if (role === 'teacher') {
-        planType = 'teacher';
-      } else if (role === 'supplier' || role === 'vendor') {
-        planType = 'vendor';
+      let planType = "institute";
+      if (role === "teacher") {
+        planType = "teacher";
+      } else if (role === "supplier" || role === "vendor") {
+        planType = "vendor";
       }
 
       // Find requested plan or default free plan
-      let selectedPlan;
+      let selectedPlan: any | null = null;
+
       if (planId) {
         selectedPlan = await SubscriptionPlan.findById(planId);
       }
-      
+
       if (!selectedPlan) {
         selectedPlan = await SubscriptionPlan.findOne({
           planType,
           price: 0,
-          isActive: true
+          isActive: true,
         });
       }
 
@@ -64,30 +96,36 @@ export const signup = async (req: AuthRequest, res: Response): Promise<void> => 
         const endDate = new Date();
         endDate.setDate(endDate.getDate() + selectedPlan.duration);
 
+        // ✅ Fix typing so TS doesn't infer "string"
+        const paymentStatus: PaymentStatus =
+          selectedPlan.price === 0 ? "completed" : "pending";
+
         subscription = {
           planId: selectedPlan._id,
-          status: 'active' as const,
-          paymentStatus: selectedPlan.price === 0 ? 'completed' : 'pending' as const,
+          status: "active",
+          paymentStatus,
           startDate,
           endDate,
           listingsUsed: 0,
-          listingsLimit: selectedPlan.features.maxListings,
+          listingsLimit: selectedPlan.features?.maxListings,
           jobPostsUsed: 0,
-          jobPostsLimit: selectedPlan.features.maxJobPosts,
+          jobPostsLimit: selectedPlan.features?.maxJobPosts,
           browseCount: 0,
-          browseCountLimit: selectedPlan.features.maxBrowsesPerMonth,
+          browseCountLimit: selectedPlan.features?.maxBrowsesPerMonth,
           lastBrowseReset: startDate,
-          notes: planId ? `Assigned ${selectedPlan.displayName} plan on signup` : 'Free plan assigned on signup'
+          notes: planId
+            ? `Assigned ${selectedPlan.displayName} plan on signup`
+            : "Free plan assigned on signup",
         };
       }
     }
 
     // Create user
-    const user = await User.create({
+    const user: any = await User.create({
       name,
       email,
       password,
-      role: role || 'institute',
+      role: role || "institute",
       instituteName,
       contactPerson,
       phone,
@@ -104,7 +142,7 @@ export const signup = async (req: AuthRequest, res: Response): Promise<void> => 
     const token = generateToken(user._id.toString());
 
     // Set cookie
-    res.cookie('token', token, JWT_CONFIG.cookieOptions);
+    res.cookie("token", token, JWT_CONFIG.cookieOptions);
 
     // Return user data
     const userData = {
@@ -130,15 +168,15 @@ export const signup = async (req: AuthRequest, res: Response): Promise<void> => 
         user: userData,
         token,
       },
-      message: 'User registered successfully',
+      message: "User registered successfully",
       timestamp: new Date().toISOString(),
     });
   } catch (error) {
-    console.error('Signup error:', error);
+    console.error("Signup error:", error);
     res.status(500).json({
       success: false,
-      error: error instanceof Error ? error.message : 'Registration failed',
-      code: 'SIGNUP_ERROR',
+      error: error instanceof Error ? error.message : "Registration failed",
+      code: "SIGNUP_ERROR",
     });
   }
 };
@@ -154,19 +192,19 @@ export const login = async (req: AuthRequest, res: Response): Promise<void> => {
     if (!email || !password) {
       res.status(400).json({
         success: false,
-        error: 'Email and password are required',
-        code: 'MISSING_FIELDS',
+        error: "Email and password are required",
+        code: "MISSING_FIELDS",
       });
       return;
     }
 
     // Find user and include password
-    const user = await User.findOne({ email }).select('+password');
+    const user: any = await User.findOne({ email }).select("+password");
     if (!user) {
       res.status(401).json({
         success: false,
-        error: 'Invalid email or password',
-        code: 'INVALID_CREDENTIALS',
+        error: "Invalid email or password",
+        code: "INVALID_CREDENTIALS",
       });
       return;
     }
@@ -176,8 +214,8 @@ export const login = async (req: AuthRequest, res: Response): Promise<void> => {
     if (!isPasswordValid) {
       res.status(401).json({
         success: false,
-        error: 'Invalid email or password',
-        code: 'INVALID_CREDENTIALS',
+        error: "Invalid email or password",
+        code: "INVALID_CREDENTIALS",
       });
       return;
     }
@@ -186,8 +224,8 @@ export const login = async (req: AuthRequest, res: Response): Promise<void> => {
     if (!user.isActive) {
       res.status(403).json({
         success: false,
-        error: 'Account is deactivated',
-        code: 'ACCOUNT_DEACTIVATED',
+        error: "Account is deactivated",
+        code: "ACCOUNT_DEACTIVATED",
       });
       return;
     }
@@ -196,7 +234,7 @@ export const login = async (req: AuthRequest, res: Response): Promise<void> => {
     const token = generateToken(user._id.toString());
 
     // Set cookie
-    res.cookie('token', token, JWT_CONFIG.cookieOptions);
+    res.cookie("token", token, JWT_CONFIG.cookieOptions);
 
     // Return user data
     const userData = {
@@ -222,15 +260,15 @@ export const login = async (req: AuthRequest, res: Response): Promise<void> => {
         user: userData,
         token,
       },
-      message: 'Login successful',
+      message: "Login successful",
       timestamp: new Date().toISOString(),
     });
   } catch (error) {
-    console.error('Login error:', error);
+    console.error("Login error:", error);
     res.status(500).json({
       success: false,
-      error: 'Login failed',
-      code: 'LOGIN_ERROR',
+      error: "Login failed",
+      code: "LOGIN_ERROR",
     });
   }
 };
@@ -241,20 +279,20 @@ export const login = async (req: AuthRequest, res: Response): Promise<void> => {
 export const logout = async (req: AuthRequest, res: Response): Promise<void> => {
   try {
     // Clear cookie
-    res.clearCookie('token');
+    res.clearCookie("token");
 
     res.status(200).json({
       success: true,
       data: { loggedOut: true },
-      message: 'Logout successful',
+      message: "Logout successful",
       timestamp: new Date().toISOString(),
     });
   } catch (error) {
-    console.error('Logout error:', error);
+    console.error("Logout error:", error);
     res.status(500).json({
       success: false,
-      error: 'Logout failed',
-      code: 'LOGOUT_ERROR',
+      error: "Logout failed",
+      code: "LOGOUT_ERROR",
     });
   }
 };
@@ -262,27 +300,30 @@ export const logout = async (req: AuthRequest, res: Response): Promise<void> => 
 // @desc    Get current user
 // @route   GET /api/auth/me
 // @access  Private
-export const getCurrentUser = async (req: AuthRequest, res: Response): Promise<void> => {
+export const getCurrentUser = async (
+  req: AuthRequest,
+  res: Response
+): Promise<void> => {
   try {
     if (!req.user) {
       res.status(401).json({
         success: false,
-        error: 'Not authenticated',
-        code: 'NOT_AUTHENTICATED',
+        error: "Not authenticated",
+        code: "NOT_AUTHENTICATED",
       });
       return;
     }
 
-    // Ensure plan is populated even if middleware didn't (though it should have)
-    const user = await User.findById(req.user._id)
-      .select('-password')
-      .populate('subscription.planId');
+    // Ensure plan is populated even if middleware didn't
+    const user: any = await User.findById(req.user._id)
+      .select("-password")
+      .populate("subscription.planId");
 
     if (!user) {
       res.status(404).json({
         success: false,
-        error: 'User not found',
-        code: 'NOT_FOUND',
+        error: "User not found",
+        code: "NOT_FOUND",
       });
       return;
     }
@@ -311,11 +352,11 @@ export const getCurrentUser = async (req: AuthRequest, res: Response): Promise<v
       timestamp: new Date().toISOString(),
     });
   } catch (error) {
-    console.error('Get current user error:', error);
+    console.error("Get current user error:", error);
     res.status(500).json({
       success: false,
-      error: 'Failed to fetch user data',
-      code: 'FETCH_USER_ERROR',
+      error: "Failed to fetch user data",
+      code: "FETCH_USER_ERROR",
     });
   }
 };
@@ -323,9 +364,13 @@ export const getCurrentUser = async (req: AuthRequest, res: Response): Promise<v
 // @desc    Validate token
 // @route   GET /api/auth/validate
 // @access  Public
-export const validateToken = async (req: AuthRequest, res: Response): Promise<void> => {
+export const validateToken = async (
+  req: AuthRequest,
+  res: Response
+): Promise<void> => {
   try {
-    const token = req.header('Authorization')?.replace('Bearer ', '') || req.cookies?.token;
+    const token =
+      req.header("Authorization")?.replace("Bearer ", "") || req.cookies?.token;
 
     if (!token) {
       res.status(200).json({
@@ -355,13 +400,16 @@ export const validateToken = async (req: AuthRequest, res: Response): Promise<vo
 // @desc    Refresh token
 // @route   POST /api/auth/refresh
 // @access  Private
-export const refreshToken = async (req: AuthRequest, res: Response): Promise<void> => {
+export const refreshToken = async (
+  req: AuthRequest,
+  res: Response
+): Promise<void> => {
   try {
     if (!req.user) {
       res.status(401).json({
         success: false,
-        error: 'Not authenticated',
-        code: 'NOT_AUTHENTICATED',
+        error: "Not authenticated",
+        code: "NOT_AUTHENTICATED",
       });
       return;
     }
@@ -370,20 +418,20 @@ export const refreshToken = async (req: AuthRequest, res: Response): Promise<voi
     const token = generateToken(req.user._id.toString());
 
     // Set cookie
-    res.cookie('token', token, JWT_CONFIG.cookieOptions);
+    res.cookie("token", token, JWT_CONFIG.cookieOptions);
 
     res.status(200).json({
       success: true,
       data: { token },
-      message: 'Token refreshed successfully',
+      message: "Token refreshed successfully",
       timestamp: new Date().toISOString(),
     });
   } catch (error) {
-    console.error('Refresh token error:', error);
+    console.error("Refresh token error:", error);
     res.status(500).json({
       success: false,
-      error: 'Token refresh failed',
-      code: 'REFRESH_ERROR',
+      error: "Token refresh failed",
+      code: "REFRESH_ERROR",
     });
   }
 };
