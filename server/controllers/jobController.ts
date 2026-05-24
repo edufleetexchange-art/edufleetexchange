@@ -1,4 +1,4 @@
-import { Request, Response } from 'express';
+import { Response } from 'express';
 import Job from '../models/Job.js';
 import User from '../models/User.js';
 import Notification from '../models/Notification.js';
@@ -245,10 +245,10 @@ export const getJobById = async (req: AuthRequest, res: Response) => {
 };
 
 // Update job
-export const updateJob = async (req: Request, res: Response) => {
+export const updateJob = async (req: AuthRequest, res: Response) => {
   try {
-    const userId = (req as any).user.id;
-    const userRole = (req as any).user.role;
+    const userId = req.account?.id;
+    const userRole = req.account?.role;
 
     let job = await Job.findById(req.params.id);
 
@@ -288,10 +288,10 @@ export const updateJob = async (req: Request, res: Response) => {
 };
 
 // Delete job
-export const deleteJob = async (req: Request, res: Response) => {
+export const deleteJob = async (req: AuthRequest, res: Response) => {
   try {
-    const userId = (req as any).user.id;
-    const userRole = (req as any).user.role;
+    const userId = req.account?.id;
+    const userRole = req.account?.role;
 
     const job = await Job.findById(req.params.id);
 
@@ -328,9 +328,9 @@ export const deleteJob = async (req: Request, res: Response) => {
 };
 
 // Get institute's jobs
-export const getInstituteJobs = async (req: Request, res: Response) => {
+export const getInstituteJobs = async (req: AuthRequest, res: Response) => {
   try {
-    const userId = (req as any).user.id;
+    const userId = req.account?.id;
 
     const jobs = await Job.find({ instituteId: userId }).sort('-createdAt');
 
@@ -348,9 +348,9 @@ export const getInstituteJobs = async (req: Request, res: Response) => {
 };
 
 // Apply to job
-export const applyToJob = async (req: Request, res: Response) => {
+export const applyToJob = async (req: AuthRequest, res: Response) => {
   try {
-    const userId = (req as any).user.id;
+    const userId = req.account?.id;
     const jobId = req.params.id;
     const { coverLetter } = req.body;
 
@@ -438,10 +438,10 @@ export const applyToJob = async (req: Request, res: Response) => {
 };
 
 // Get applications
-export const getApplications = async (req: Request, res: Response) => {
+export const getApplications = async (req: AuthRequest, res: Response) => {
   try {
-    const userId = (req as any).user.id;
-    const userRole = (req as any).user.role;
+    const userId = req.account?.id;
+    const userRole = req.account?.role;
     const { jobId } = req.query;
 
     const query: any = {};
@@ -534,10 +534,10 @@ const validateStatusTransition = (currentStatus: string, newStatus: string): { v
 };
 
 // Update application status
-export const updateApplicationStatus = async (req: Request, res: Response) => {
+export const updateApplicationStatus = async (req: AuthRequest, res: Response) => {
   try {
-    const userId = (req as any).user.id;
-    const userRole = (req as any).user.role;
+    const userId = req.account?.id;
+    const userRole = req.account?.role;
     const applicationId = req.params.id;
     const { status, interviewScheduled } = req.body;
 
@@ -697,10 +697,10 @@ export const updateApplicationStatus = async (req: Request, res: Response) => {
 };
 
 // Reschedule interview
-export const rescheduleInterview = async (req: Request, res: Response) => {
+export const rescheduleInterview = async (req: AuthRequest, res: Response) => {
   try {
-    const userId = (req as any).user.id;
-    const userRole = (req as any).user.role;
+    const userId = req.account?.id;
+    const userRole = req.account?.role;
     const applicationId = req.params.id;
     const { interviewScheduled } = req.body;
 

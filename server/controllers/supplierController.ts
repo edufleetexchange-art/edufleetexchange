@@ -6,9 +6,9 @@ import SubscriptionPlan from '../models/SubscriptionPlan.js';
 import { AuthRequest } from '../middleware/auth.js';
 
 // Create a new supplier
-export const createSupplier = async (req: Request, res: Response) => {
+export const createSupplier = async (req: AuthRequest, res: Response) => {
   try {
-    const userId = (req as any).user.id;
+    const userId = req.account?.id;
 
     const supplierData = {
       ...req.body,
@@ -191,10 +191,10 @@ export const getSupplierById = async (req: AuthRequest, res: Response) => {
 };
 
 // Update supplier
-export const updateSupplier = async (req: Request, res: Response) => {
+export const updateSupplier = async (req: AuthRequest, res: Response) => {
   try {
-    const userId = (req as any).user.id;
-    const userRole = (req as any).user.role;
+    const userId = req.account?.id;
+    const userRole = req.account?.role;
 
     let supplier = await Supplier.findById(req.params.id);
 
@@ -240,10 +240,10 @@ export const updateSupplier = async (req: Request, res: Response) => {
 };
 
 // Delete supplier
-export const deleteSupplier = async (req: Request, res: Response) => {
+export const deleteSupplier = async (req: AuthRequest, res: Response) => {
   try {
-    const userId = (req as any).user.id;
-    const userRole = (req as any).user.role;
+    const userId = req.account?.id;
+    const userRole = req.account?.role;
 
     const supplier = await Supplier.findById(req.params.id);
 
@@ -280,9 +280,9 @@ export const deleteSupplier = async (req: Request, res: Response) => {
 };
 
 // Get user's suppliers
-export const getMySuppliers = async (req: Request, res: Response) => {
+export const getMySuppliers = async (req: AuthRequest, res: Response) => {
   try {
-    const userId = (req as any).user.id;
+    const userId = req.account?.id;
 
     const suppliers = await Supplier.find({ createdBy: userId }).sort('-createdAt');
 
