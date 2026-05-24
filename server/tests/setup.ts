@@ -1,11 +1,11 @@
-import { MongoMemoryServer } from 'mongodb-memory-server';
+import { MongoMemoryReplSet } from 'mongodb-memory-server';
 import mongoose from 'mongoose';
 import { beforeAll, afterAll, beforeEach } from 'vitest';
 
-let mongod: MongoMemoryServer;
+let mongod: MongoMemoryReplSet;
 
 beforeAll(async () => {
-  mongod = await MongoMemoryServer.create();
+  mongod = await MongoMemoryReplSet.create({ replSet: { count: 1 } });
   await mongoose.connect(mongod.getUri());
 });
 

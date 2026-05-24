@@ -186,4 +186,4 @@ const subscriptionPlanSchema = new Schema<ISubscriptionPlan>(
   }
 );
 
-export default mongoose.model<ISubscriptionPlan>('SubscriptionPlan', subscriptionPlanSchema);
+export default (mongoose.models.SubscriptionPlan as mongoose.Model<ISubscriptionPlan>) ?? mongoose.model<ISubscriptionPlan>('SubscriptionPlan', subscriptionPlanSchema);
