@@ -10,8 +10,11 @@ beforeAll(async () => {
 });
 
 afterAll(async () => {
-  await mongoose.disconnect();
-  await mongod.stop();
+  try {
+    await mongoose.disconnect();
+  } finally {
+    await mongod.stop();
+  }
 });
 
 beforeEach(async () => {
