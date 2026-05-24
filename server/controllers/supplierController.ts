@@ -50,7 +50,7 @@ export const getAllSuppliers = async (req: AuthRequest, res: Response) => {
     const query: any = {};
 
     // Only allow non-approved status for admins
-    if (!req.user || req.user.role !== 'admin') {
+    if (!req.account || req.account.role !== 'admin') {
       query.status = 'approved';
     } else if (status) {
       query.status = status;
@@ -166,7 +166,7 @@ export const getSupplierById = async (req: AuthRequest, res: Response) => {
     const isPaid = creator?.subscription?.status === 'active';
 
     // If not admin and not owner, check if vendor is paid to show details
-    if (!isPaid && (!req.user || (req.user.role !== 'admin' && req.user._id.toString() !== creator?._id?.toString()))) {
+    if (!isPaid && (!req.account || (req.account.role !== 'admin' && req.account.id !== creator?._id?.toString()))) {
       return res.status(403).json({
         success: false,
         error: 'Access restricted: Full details are only available for featured vendors. Please contact admin for details.',
@@ -420,7 +420,7 @@ export const approveSupplierStatus = async (req: AuthRequest, res: Response) => 
 // Toggle supplier verification
 export const toggleVerification = async (req: AuthRequest, res: Response) => {
   try {
-    const userRole = req.user?.role;
+    const userRole = req.account?.role;
     const supplierId = req.params.id;
 
     if (userRole !== 'admin') {

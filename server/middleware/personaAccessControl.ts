@@ -290,7 +290,7 @@ export async function requireVehicleListingAccess(
   res: Response,
   next: NextFunction
 ) {
-  const userId = req.userId;
+  const userId = req.account?.id;
   
   if (!userId) {
     return res.status(401).json({ error: 'Authentication required' });
@@ -320,7 +320,7 @@ export async function requireJobPostAccess(
   res: Response,
   next: NextFunction
 ) {
-  const userId = req.userId;
+  const userId = req.account?.id;
   
   if (!userId) {
     return res.status(401).json({ error: 'Authentication required' });
@@ -350,7 +350,7 @@ export async function requireJobApplicationAccess(
   res: Response,
   next: NextFunction
 ) {
-  const userId = req.userId;
+  const userId = req.account?.id;
   
   if (!userId) {
     return res.status(401).json({ error: 'Authentication required' });
@@ -380,7 +380,7 @@ export async function requireProductListingAccess(
   res: Response,
   next: NextFunction
 ) {
-  const userId = req.userId;
+  const userId = req.account?.id;
   
   if (!userId) {
     return res.status(401).json({ error: 'Authentication required' });

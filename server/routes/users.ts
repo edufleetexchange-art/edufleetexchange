@@ -5,16 +5,16 @@ import {
   getUserProfile,
   updateUserProfile,
 } from '../controllers/userController.js';
-import { authenticate, optionalAuth } from '../middleware/auth.js';
+import { authenticate } from '../middleware/auth.js';
 
 const router = express.Router();
 
 // Public routes
-router.get('/', optionalAuth, getUsers);
+router.get('/', getUsers);
 
 // Protected routes
 router.get('/profile', authenticate, getUserProfile);
-router.get('/:id', optionalAuth, getUserById);
+router.get('/:id', getUserById);
 router.put('/profile', authenticate, updateUserProfile);
 router.patch('/profile', authenticate, updateUserProfile);
 

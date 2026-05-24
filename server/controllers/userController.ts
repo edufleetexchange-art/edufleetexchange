@@ -43,7 +43,7 @@ export const getUsers = async (req: AuthRequest, res: Response): Promise<void> =
       
       // Apply delay if searching for teachers
       if (role === 'teacher') {
-        const delayDate = getTeacherDataDelayDate(req.user);
+        const delayDate = getTeacherDataDelayDate(req.account);
         if (delayDate) {
           query.createdAt = { $lte: delayDate };
         }
@@ -142,8 +142,8 @@ export const getUserById = async (req: AuthRequest, res: Response): Promise<void
     }
 
     // Check visibility based on delay if not admin and user is a teacher
-    if (user.role === 'teacher' && (!req.user || req.user.role !== 'admin')) {
-      const delayDate = getTeacherDataDelayDate(req.user);
+    if (user.role === 'teacher' && (!req.account || req.account.role !== 'admin')) {
+      const delayDate = getTeacherDataDelayDate(req.account);
       if (delayDate && new Date(user.createdAt) > delayDate) {
         res.status(403).json({
           success: false,
@@ -174,7 +174,7 @@ export const getUserById = async (req: AuthRequest, res: Response): Promise<void
 // @access  Private
 export const getUserProfile = async (req: AuthRequest, res: Response): Promise<void> => {
   try {
-    const userId = req.userId;
+    const userId = req.account?.id;
 
     const user = await User.findById(userId)
       .select('-password')
@@ -210,7 +210,7 @@ export const getUserProfile = async (req: AuthRequest, res: Response): Promise<v
 // @access  Private
 export const updateUserProfile = async (req: AuthRequest, res: Response): Promise<void> => {
   try {
-    const userId = req.userId;
+    const userId = req.account?.id;
     const updates = req.body;
 
     // List of allowed fields to update

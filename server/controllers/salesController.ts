@@ -17,12 +17,12 @@ import mongoose from 'mongoose';
  */
 export const getSalesStats = async (req: AuthRequest, res: Response): Promise<void> => {
   try {
-    if (!req.user || (req.user.role !== 'sales' && req.user.role !== 'admin')) {
+    if (!req.account || (req.account.role !== 'sales' && req.account.role !== 'admin')) {
       res.status(403).json({ success: false, error: 'Not authorized', code: 'FORBIDDEN' });
       return;
     }
 
-    const userId = req.user._id;
+    const userId = req.account!.id;
 
     // Stats for subscription requests and leads (excluding marketing-only leads)
     const [totalRequests, pendingRequests, approvedRequests, rejectedRequests, totalLeads, newLeads] = await Promise.all([
@@ -67,7 +67,7 @@ export const getSalesStats = async (req: AuthRequest, res: Response): Promise<vo
  */
 export const getSubscriptionRequests = async (req: AuthRequest, res: Response): Promise<void> => {
   try {
-    if (!req.user || (req.user.role !== 'sales' && req.user.role !== 'admin')) {
+    if (!req.account || (req.account.role !== 'sales' && req.account.role !== 'admin')) {
       res.status(403).json({ success: false, error: 'Not authorized', code: 'FORBIDDEN' });
       return;
     }
@@ -118,7 +118,7 @@ export const getSubscriptionRequests = async (req: AuthRequest, res: Response): 
  */
 export const updateRequestStatus = async (req: AuthRequest, res: Response): Promise<void> => {
   try {
-    if (!req.user || (req.user.role !== 'sales' && req.user.role !== 'admin')) {
+    if (!req.account || (req.account.role !== 'sales' && req.account.role !== 'admin')) {
       res.status(403).json({ success: false, error: 'Not authorized', code: 'FORBIDDEN' });
       return;
     }
@@ -148,7 +148,7 @@ export const updateRequestStatus = async (req: AuthRequest, res: Response): Prom
 
     // Log the action
     await logAction({
-      user: req.user,
+      user: req.account as any,
       action: status === 'approved' ? 'CLOSE_DEAL' : 'REJECT_DEAL',
       targetId: request._id.toString(),
       targetType: 'SubscriptionRequest',
@@ -183,7 +183,7 @@ export const updateRequestStatus = async (req: AuthRequest, res: Response): Prom
             browseCount: 0,
             browseCountLimit: plan.features.maxBrowsesPerMonth,
             lastBrowseReset: startDate,
-            notes: `Approved by Sales: ${req.user.name} (${req.user.employeeId})`
+            notes: `Approved by Sales: ${req.account!.name} (${req.account!.employeeId})`
           };
           await user.save();
         }
@@ -208,7 +208,7 @@ export const updateRequestStatus = async (req: AuthRequest, res: Response): Prom
  */
 export const getAllLeads = async (req: AuthRequest, res: Response): Promise<void> => {
   try {
-    if (!req.user || (req.user.role !== 'sales' && req.user.role !== 'admin')) {
+    if (!req.account || (req.account.role !== 'sales' && req.account.role !== 'admin')) {
       res.status(403).json({ success: false, error: 'Not authorized', code: 'FORBIDDEN' });
       return;
     }
@@ -257,7 +257,7 @@ export const getAllLeads = async (req: AuthRequest, res: Response): Promise<void
  */
 export const updateLeadStatus = async (req: AuthRequest, res: Response): Promise<void> => {
   try {
-    if (!req.user || (req.user.role !== 'sales' && req.user.role !== 'admin')) {
+    if (!req.account || (req.account.role !== 'sales' && req.account.role !== 'admin')) {
       res.status(403).json({ success: false, error: 'Not authorized', code: 'FORBIDDEN' });
       return;
     }
@@ -274,12 +274,12 @@ export const updateLeadStatus = async (req: AuthRequest, res: Response): Promise
     lead.status = status;
     lead.notes = notes || lead.notes;
     if (status === 'closed') {
-      lead.closedBy = req.user._id;
+      lead.closedBy = req.account!.id;
     }
     await lead.save();
 
     await logAction({
-      user: req.user,
+      user: req.account as any,
       action: status === 'closed' ? 'CLOSE_LEAD' : 'UPDATE_LEAD',
       targetId: lead._id.toString(),
       targetType: 'Lead',
@@ -301,7 +301,7 @@ export const updateLeadStatus = async (req: AuthRequest, res: Response): Promise
  */
 export const createSalesUser = async (req: AuthRequest, res: Response): Promise<void> => {
   try {
-    if (!req.user || (req.user.role !== 'sales' && req.user.role !== 'admin')) {
+    if (!req.account || (req.account.role !== 'sales' && req.account.role !== 'admin')) {
       res.status(403).json({ success: false, error: 'Not authorized', code: 'FORBIDDEN' });
       return;
     }
@@ -346,7 +346,7 @@ export const createSalesUser = async (req: AuthRequest, res: Response): Promise<
           browseCount: 0,
           browseCountLimit: plan.features.maxBrowsesPerMonth,
           lastBrowseReset: startDate,
-          notes: `Created by Sales: ${req.user.name}`
+          notes: `Created by Sales: ${req.account!.name}`
         };
       }
     }
@@ -354,7 +354,7 @@ export const createSalesUser = async (req: AuthRequest, res: Response): Promise<
     await user.save();
 
     await logAction({
-      user: req.user,
+      user: req.account as any,
       action: 'CREATE_USER',
       targetId: user._id.toString(),
       targetType: 'User',
@@ -376,7 +376,7 @@ export const createSalesUser = async (req: AuthRequest, res: Response): Promise<
  */
 export const createSalesListing = async (req: AuthRequest, res: Response): Promise<void> => {
   try {
-    if (!req.user || (req.user.role !== 'sales' && req.user.role !== 'admin')) {
+    if (!req.account || (req.account.role !== 'sales' && req.account.role !== 'admin')) {
       res.status(403).json({ success: false, error: 'Not authorized', code: 'FORBIDDEN' });
       return;
     }
@@ -410,7 +410,7 @@ export const createSalesListing = async (req: AuthRequest, res: Response): Promi
     }
 
     await logAction({
-      user: req.user,
+      user: req.account as any,
       action: 'CREATE_LISTING',
       targetId: listing._id.toString(),
       targetType: type === 'vehicle' ? 'Vehicle' : 'Job',
@@ -432,7 +432,7 @@ export const createSalesListing = async (req: AuthRequest, res: Response): Promi
  */
 export const createSalesVendor = async (req: AuthRequest, res: Response): Promise<void> => {
   try {
-    if (!req.user || (req.user.role !== 'sales' && req.user.role !== 'admin')) {
+    if (!req.account || (req.account.role !== 'sales' && req.account.role !== 'admin')) {
       res.status(403).json({ success: false, error: 'Not authorized', code: 'FORBIDDEN' });
       return;
     }
@@ -502,14 +502,14 @@ export const createSalesVendor = async (req: AuthRequest, res: Response): Promis
           browseCount: 0,
           browseCountLimit: plan.features.maxBrowsesPerMonth,
           lastBrowseReset: startDate,
-          notes: `Vendor Setup by Sales: ${req.user.name}`
+          notes: `Vendor Setup by Sales: ${req.account!.name}`
         };
         await user.save();
       }
     }
 
     await logAction({
-      user: req.user,
+      user: req.account as any,
       action: 'CREATE_VENDOR',
       targetId: supplier._id.toString(),
       targetType: 'Supplier',

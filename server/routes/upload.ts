@@ -1,11 +1,11 @@
 import express, { Request, Response } from 'express';
 import { uploadMultiple, uploadSingle } from '../middleware/upload.js';
-import { protect } from '../middleware/auth.js';
+import { authenticate } from '../middleware/auth.js';
 
 const router = express.Router();
 
 // Protect all upload routes
-router.use(protect);
+router.use(authenticate);
 
 // Helper to convert buffer to base64
 const toBase64 = (buffer: Buffer, mimetype: string) => {

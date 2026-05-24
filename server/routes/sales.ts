@@ -9,13 +9,13 @@ import {
   createSalesListing,
   createSalesVendor
 } from '../controllers/salesController.js';
-import { authenticate, authorize } from '../middleware/auth.js';
+import { authenticate, requireRole } from '../middleware/auth.js';
 
 const router = express.Router();
 
 // All sales routes are protected and require sales or admin role
 router.use(authenticate);
-router.use(authorize('sales', 'admin'));
+router.use(requireRole(['sales', 'admin']));
 
 router.get('/stats', getSalesStats);
 router.get('/requests', getSubscriptionRequests);

@@ -251,9 +251,9 @@ export const updateUserStatus = async (req: AuthRequest, res: Response): Promise
     }
 
     // Log the action for auditing
-    if (req.user) {
+    if (req.account) {
       await logAction({
-        user: req.user,
+        user: req.account as any,
         action: 'UPDATE_USER_STATUS',
         targetId: user._id.toString(),
         targetType: 'User',
@@ -358,7 +358,7 @@ export const createUser = async (req: AuthRequest, res: Response): Promise<void>
     }
 
     // Restrict marketing/sales role from creating admins or other staff users
-    if ((req.user?.role === 'marketing' || req.user?.role === 'sales') && (role === 'admin' || role === 'marketing' || role === 'sales')) {
+    if ((req.account?.role === 'marketing' || req.account?.role === 'sales') && (role === 'admin' || role === 'marketing' || role === 'sales')) {
       res.status(403).json({
         success: false,
         error: 'Insufficient permissions to create this role',
@@ -460,9 +460,9 @@ export const createUser = async (req: AuthRequest, res: Response): Promise<void>
     console.log('User created successfully:', user._id);
 
     // Log the action for auditing
-    if (req.user) {
+    if (req.account) {
       await logAction({
-        user: req.user,
+        user: req.account as any,
         action: 'CREATE_USER',
         targetId: user._id.toString(),
         targetType: 'User',
@@ -612,7 +612,7 @@ export const getAuditLogs = async (req: AuthRequest, res: Response): Promise<voi
     }
 
     // If role is sales, restrict audit logs related to marketing-only leads
-    if (req.user?.role === 'sales') {
+    if (req.account?.role === 'sales') {
       // This is a bit tricky because audit logs store targetId, not the lead's properties.
       // However, we can at least filter by action types if needed.
       // For now, let's assume sales can see audit logs but the leads themselves are protected.
@@ -692,9 +692,9 @@ export const createCategory = async (req: AuthRequest, res: Response): Promise<v
       order: order || 0,
     });
 
-    if (req.user) {
+    if (req.account) {
       await logAction({
-        user: req.user,
+        user: req.account as any,
         action: 'CREATE_CATEGORY',
         targetId: category._id.toString(),
         targetType: 'Category',
@@ -770,9 +770,9 @@ export const updateCategory = async (req: AuthRequest, res: Response): Promise<v
       return;
     }
 
-    if (req.user) {
+    if (req.account) {
       await logAction({
-        user: req.user,
+        user: req.account as any,
         action: 'UPDATE_CATEGORY',
         targetId: category._id.toString(),
         targetType: 'Category',
@@ -824,9 +824,9 @@ export const deleteCategory = async (req: AuthRequest, res: Response): Promise<v
       return;
     }
 
-    if (req.user) {
+    if (req.account) {
       await logAction({
-        user: req.user,
+        user: req.account as any,
         action: 'DELETE_CATEGORY',
         targetId: id,
         targetType: 'Category',
@@ -887,14 +887,14 @@ export const updateSetting = async (req: AuthRequest, res: Response): Promise<vo
         description, 
         group, 
         isPublic,
-        updatedBy: req.user?._id
+        updatedBy: req.account?.id
       },
       { new: true, upsert: true, runValidators: true }
     );
 
-    if (req.user) {
+    if (req.account) {
       await logAction({
-        user: req.user,
+        user: req.account as any,
         action: 'UPDATE_SETTING',
         targetId: setting._id.toString(),
         targetType: 'SystemConfig',

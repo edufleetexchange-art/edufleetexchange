@@ -441,7 +441,7 @@ export const cancelSubscription = async (req: Request, res: Response) => {
 
 export const continueOwnSubscription = async (req: AuthRequest, res: Response) => {
   try {
-    const userId = req.userId;
+    const userId = req.account?.id;
     if (!userId) {
       return res.status(401).json({ error: 'User ID not found' });
     }
@@ -702,7 +702,7 @@ export const getFilteredSubscriptions = async (req: Request, res: Response) => {
 
 export const createSubscriptionRequest = async (req: AuthRequest, res: Response) => {
   try {
-    const userId = req.userId;
+    const userId = req.account?.id;
     if (!userId) {
       return res.status(401).json({ error: 'User ID not found' });
     }
@@ -835,7 +835,7 @@ export const updateSubscriptionRequest = async (req: Request, res: Response) => 
 
 export const getUserSubscriptionRequests = async (req: AuthRequest, res: Response) => {
   try {
-    const userId = req.userId;
+    const userId = req.account?.id;
     if (!userId) {
       return res.status(401).json({ error: 'User ID not found' });
     }
@@ -883,7 +883,7 @@ const isCompanyUser = (role: string) => {
 // Check browse limit
 export const checkBrowseLimit = async (req: AuthRequest, res: Response) => {
   try {
-    const userId = req.userId;
+    const userId = req.account?.id;
     if (!userId) {
       return res.status(401).json({ error: 'User ID not found' });
     }
@@ -966,7 +966,7 @@ export const checkBrowseLimit = async (req: AuthRequest, res: Response) => {
 // Increment browse count
 export const incrementBrowseCount = async (req: AuthRequest, res: Response) => {
   try {
-    const userId = req.userId;
+    const userId = req.account?.id;
     if (!userId) {
       return res.status(401).json({ error: 'User ID not found' });
     }
@@ -1004,7 +1004,7 @@ export const incrementBrowseCount = async (req: AuthRequest, res: Response) => {
 // Check listing limit
 export const checkListingLimit = async (req: AuthRequest, res: Response) => {
   try {
-    const userId = req.userId;
+    const userId = req.account?.id;
     if (!userId) {
       return res.status(401).json({ error: 'User ID not found' });
     }
@@ -1084,7 +1084,7 @@ export const checkListingLimit = async (req: AuthRequest, res: Response) => {
 // Increment listing count
 export const incrementListingCount = async (req: AuthRequest, res: Response) => {
   try {
-    const userId = req.userId;
+    const userId = req.account?.id;
     if (!userId) {
       return res.status(401).json({ error: 'User ID not found' });
     }
@@ -1128,7 +1128,7 @@ export const incrementListingCount = async (req: AuthRequest, res: Response) => 
 // Decrement listing count
 export const decrementListingCount = async (req: AuthRequest, res: Response) => {
   try {
-    const userId = req.userId;
+    const userId = req.account?.id;
     if (!userId) {
       return res.status(401).json({ error: 'User ID not found' });
     }
@@ -1165,7 +1165,7 @@ export const decrementListingCount = async (req: AuthRequest, res: Response) => 
 // Check job post limit
 export const checkJobPostLimit = async (req: AuthRequest, res: Response) => {
   try {
-    const userId = req.userId;
+    const userId = req.account?.id;
     if (!userId) {
       return res.status(401).json({ error: 'User ID not found' });
     }
@@ -1245,7 +1245,7 @@ export const checkJobPostLimit = async (req: AuthRequest, res: Response) => {
 // Increment job post count
 export const incrementJobPostCount = async (req: AuthRequest, res: Response) => {
   try {
-    const userId = req.userId;
+    const userId = req.account?.id;
     if (!userId) {
       return res.status(401).json({ error: 'User ID not found' });
     }
@@ -1351,7 +1351,7 @@ export const checkListingVisibility = async (req: Request, res: Response) => {
 // Check notification permission
 export const checkNotificationPermission = async (req: AuthRequest, res: Response) => {
   try {
-    const userId = req.userId;
+    const userId = req.account?.id;
     if (!userId) {
       return res.status(401).json({ error: 'User ID not found' });
     }

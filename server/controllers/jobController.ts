@@ -24,7 +24,7 @@ const getDataDelayDate = (user: any): Date | null => {
 // Create a new job
 export const createJob = async (req: AuthRequest, res: Response) => {
   try {
-    const userId = req.userId;
+    const userId = req.account?.id;
     const user = await User.findById(userId).populate('subscription.planId');
 
     if (!user) {
@@ -124,7 +124,7 @@ export const getAllJobs = async (req: AuthRequest, res: Response) => {
     const query: any = { status: 'active' };
 
     // Apply subscription data delay
-    const delayDate = getDataDelayDate(req.user);
+    const delayDate = getDataDelayDate(req.account);
     if (delayDate) {
       query.createdAt = { $lte: delayDate };
     }
@@ -220,8 +220,8 @@ export const getJobById = async (req: AuthRequest, res: Response) => {
     }
 
     // Check visibility based on delay if not admin/owner
-    if (!req.user || (req.user.role !== 'admin' && req.user._id.toString() !== job.instituteId.toString())) {
-      const delayDate = getDataDelayDate(req.user);
+    if (!req.account || (req.account.role !== 'admin' && req.account.id !== job.instituteId.toString())) {
+      const delayDate = getDataDelayDate(req.account);
       if (delayDate && job.createdAt > delayDate) {
         return res.status(403).json({
           success: false,
