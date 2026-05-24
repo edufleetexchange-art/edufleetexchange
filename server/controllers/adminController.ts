@@ -1,6 +1,7 @@
 import { Response } from 'express';
 import Vehicle from '../models/Vehicle.js';
-import User from '../models/User.js';
+import Account from '../models/Account.js';
+import Subscription from '../models/Subscription.js';
 import Job from '../models/Job.js';
 import Supplier from '../models/Supplier.js';
 import SubscriptionPlan from '../models/SubscriptionPlan.js';
@@ -30,8 +31,8 @@ export const getDashboardStats = async (req: AuthRequest, res: Response): Promis
       Vehicle.countDocuments({ status: 'pending' }),
       Vehicle.countDocuments({ status: 'approved' }),
       Vehicle.countDocuments({ status: 'rejected' }),
-      User.countDocuments({ role: 'institute' }),
-      User.countDocuments({ role: 'teacher' }),
+      Account.countDocuments({ role: 'institute' }),
+      Account.countDocuments({ role: 'teacher' }),
       Job.countDocuments(),
       Supplier.countDocuments(),
     ]);
@@ -207,7 +208,7 @@ export const togglePriority = async (req: AuthRequest, res: Response): Promise<v
 // @access  Private (Admin)
 export const getAllUsers = async (req: AuthRequest, res: Response): Promise<void> => {
   try {
-    const users = await User.find({ role: { $ne: 'admin' } })
+    const users = await Account.find({ role: { $ne: 'admin' } })
       .select('-password')
       .sort({ createdAt: -1 })
       .lean();
@@ -235,7 +236,7 @@ export const updateUserStatus = async (req: AuthRequest, res: Response): Promise
     const { isActive, planId, notes } = req.body;
     const userId = req.params.id;
 
-    const user = await User.findById(userId);
+    const user = await Account.findById(userId);
 
     if (!user) {
       res.status(404).json({
@@ -281,21 +282,36 @@ export const updateUserStatus = async (req: AuthRequest, res: Response): Promise
         const endDate = new Date();
         endDate.setDate(endDate.getDate() + plan.duration);
 
-        user.subscription = {
-          planId: plan._id,
-          status: 'active',
-          paymentStatus: 'completed',
-          startDate,
-          endDate,
-          listingsUsed: user.subscription?.listingsUsed || 0,
-          listingsLimit: plan.features.maxVehicleListings || 0,
-          jobPostsUsed: user.subscription?.jobPostsUsed || 0,
-          jobPostsLimit: plan.features.maxJobPosts || 0,
-          browseCount: user.subscription?.browseCount || 0,
-          browseCountLimit: plan.features.maxBrowsesPerMonth || 0,
-          lastBrowseReset: user.subscription?.lastBrowseReset || startDate,
-          notes: notes || `Plan updated by admin to ${plan.displayName}`,
-        };
+        const existingSub = await Subscription.findOne({ accountId: userId });
+        if (existingSub) {
+          existingSub.planId = plan._id as any;
+          existingSub.status = 'active';
+          existingSub.paymentStatus = 'completed';
+          existingSub.startDate = startDate;
+          existingSub.endDate = endDate;
+          existingSub.listingsLimit = plan.features.maxVehicleListings || 0;
+          existingSub.jobPostsLimit = plan.features.maxJobPosts || 0;
+          existingSub.browseCountLimit = plan.features.maxBrowsesPerMonth || 0;
+          existingSub.notes = notes || `Plan updated by admin to ${plan.displayName}`;
+          await existingSub.save();
+        } else {
+          await Subscription.create({
+            accountId: userId,
+            planId: plan._id,
+            status: 'active',
+            paymentStatus: 'completed',
+            startDate,
+            endDate,
+            listingsUsed: 0,
+            listingsLimit: plan.features.maxVehicleListings || 0,
+            jobPostsUsed: 0,
+            jobPostsLimit: plan.features.maxJobPosts || 0,
+            browseCount: 0,
+            browseCountLimit: plan.features.maxBrowsesPerMonth || 0,
+            lastBrowseReset: startDate,
+            notes: notes || `Plan updated by admin to ${plan.displayName}`,
+          });
+        }
       }
     }
 
@@ -367,7 +383,7 @@ export const createUser = async (req: AuthRequest, res: Response): Promise<void>
       return;
     }
 
-    const userExists = await User.findOne({ email: email.toLowerCase() });
+    const userExists = await Account.findOne({ email: email.toLowerCase() });
 
     if (userExists) {
       res.status(400).json({
@@ -378,33 +394,20 @@ export const createUser = async (req: AuthRequest, res: Response): Promise<void>
       return;
     }
 
-    // Check if employeeId is unique if provided and not empty
+    // Check if employeeId is unique if provided and not empty (via StaffProfile)
     const trimmedEmployeeId = employeeId?.trim() || undefined;
-    if (trimmedEmployeeId) {
-      const idExists = await User.findOne({ employeeId: trimmedEmployeeId });
-      if (idExists) {
-        res.status(400).json({
-          success: false,
-          error: 'Employee ID already exists',
-          code: 'EMPLOYEE_ID_EXISTS',
-        });
-        return;
-      }
-    }
 
     // Handle subscription if planId provided or find default free plan
-    let subscription = undefined;
+    let selectedPlan: any = null;
     const internalRoles = ['admin', 'marketing', 'sales'];
-    
-    // Only process subscription for non-internal roles
+
     if (!internalRoles.includes(role)) {
-      let planType = role === 'teacher' ? 'teacher' : role === 'vendor' ? 'vendor' : 'institute';
-      
-      let selectedPlan;
+      const planType = role === 'teacher' ? 'teacher' : role === 'vendor' ? 'vendor' : 'institute';
+
       if (planId) {
         selectedPlan = await SubscriptionPlan.findById(planId);
       }
-      
+
       if (!selectedPlan) {
         selectedPlan = await SubscriptionPlan.findOne({
           planType,
@@ -412,31 +415,9 @@ export const createUser = async (req: AuthRequest, res: Response): Promise<void>
           isActive: true
         });
       }
-
-      if (selectedPlan) {
-        const startDate = new Date();
-        const endDate = new Date();
-        endDate.setDate(endDate.getDate() + selectedPlan.duration);
-
-        subscription = {
-          planId: selectedPlan._id,
-          status: 'active' as const,
-          paymentStatus: 'completed' as const, // Admin creations skip payment
-          startDate,
-          endDate,
-          listingsUsed: 0,
-          listingsLimit: selectedPlan.features.maxVehicleListings || 0,
-          jobPostsUsed: 0,
-          jobPostsLimit: selectedPlan.features.maxJobPosts || 0,
-          browseCount: 0,
-          browseCountLimit: selectedPlan.features.maxBrowsesPerMonth || 0,
-          lastBrowseReset: startDate,
-          notes: planId ? `Assigned ${selectedPlan.displayName} plan on onboarding` : 'Default free plan assigned on onboarding'
-        };
-      }
     }
 
-    // Build user data, only including non-empty optional fields
+    // Build account data
     const userData: Record<string, any> = {
       name: name.trim(),
       email: email.toLowerCase().trim(),
@@ -444,19 +425,37 @@ export const createUser = async (req: AuthRequest, res: Response): Promise<void>
       role,
       isActive: true,
       isVerified: true,
-      subscription
     };
 
-    // Only add optional fields if they have values
-    if (instituteName?.trim()) userData.instituteName = instituteName.trim();
-    if (contactPerson?.trim()) userData.contactPerson = contactPerson.trim();
     if (phone?.trim()) userData.phone = phone.trim();
-    if (trimmedEmployeeId) userData.employeeId = trimmedEmployeeId;
 
     console.log('Final userData to create:', { ...userData, password: '[REDACTED]' });
 
-    const user = await User.create(userData);
-    
+    const user = await Account.create(userData);
+
+    // Create subscription record if applicable
+    if (selectedPlan) {
+      const startDate = new Date();
+      const endDate = new Date();
+      endDate.setDate(endDate.getDate() + selectedPlan.duration);
+      await Subscription.create({
+        accountId: user._id,
+        planId: selectedPlan._id,
+        status: 'active',
+        paymentStatus: 'completed',
+        startDate,
+        endDate,
+        listingsUsed: 0,
+        listingsLimit: selectedPlan.features.maxVehicleListings || 0,
+        jobPostsUsed: 0,
+        jobPostsLimit: selectedPlan.features.maxJobPosts || 0,
+        browseCount: 0,
+        browseCountLimit: selectedPlan.features.maxBrowsesPerMonth || 0,
+        lastBrowseReset: startDate,
+        notes: planId ? `Assigned ${selectedPlan.displayName} plan on onboarding` : 'Default free plan assigned on onboarding',
+      });
+    }
+
     console.log('User created successfully:', user._id);
 
     // Log the action for auditing
@@ -555,7 +554,7 @@ export const deleteUser = async (req: AuthRequest, res: Response): Promise<void>
   try {
     const userId = req.params.id;
 
-    const user = await User.findById(userId);
+    const user = await Account.findById(userId);
 
     if (!user) {
       res.status(404).json({
@@ -576,7 +575,7 @@ export const deleteUser = async (req: AuthRequest, res: Response): Promise<void>
     }
 
     // Delete related data if necessary (listings, etc.)
-    await User.findByIdAndDelete(userId);
+    await Account.findByIdAndDelete(userId);
 
     res.status(200).json({
       success: true,

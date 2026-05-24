@@ -1,6 +1,7 @@
 import { Request, Response } from 'express';
 import SubscriptionPlan from '../models/SubscriptionPlan.js';
-import User from '../models/User.js';
+import Account from '../models/Account.js';
+import Subscription from '../models/Subscription.js';
 import SubscriptionRequest from '../models/SubscriptionRequest.js';
 import { AuthRequest } from '../middleware/auth.js';
 
@@ -103,14 +104,14 @@ export const togglePlanStatus = async (req: Request, res: Response) => {
 
 export const getUserSubscription = async (req: Request, res: Response) => {
   try {
-    const user = await User.findById(req.params.userId).populate('subscription.planId');
-    
-    if (!user) {
+    const account = await Account.findById(req.params.userId);
+
+    if (!account) {
       return res.status(404).json({ error: 'User not found' });
     }
 
     // Skip lazy initialization for company users
-    if (isCompanyUser(user.role)) {
+    if (isCompanyUser(account.role)) {
       return res.json({
         planName: 'Company Bypass',
         status: 'active',
@@ -121,33 +122,29 @@ export const getUserSubscription = async (req: Request, res: Response) => {
         jobPostsLimit: 999999,
         browseCount: 0,
         browseCountLimit: 999999,
-        notes: 'Admin/Sales/Marketing bypass'
+        notes: 'Admin/Sales/Marketing bypass',
       });
     }
-    
-    // Lazy initialization: If no subscription, try to assign default free plan
-    if (!user.subscription || !user.subscription.planId) {
-      let planType = 'institute';
-      const roleStr = user.role as string;
-      if (roleStr === 'teacher') {
-        planType = 'teacher';
-      } else if (roleStr === 'supplier' || roleStr === 'vendor') {
-        planType = 'vendor';
-      }
 
-      const freePlan = await SubscriptionPlan.findOne({
-        planType,
-        price: 0,
-        isActive: true
-      });
+    let sub = await Subscription.findOne({ accountId: req.params.userId }).populate('planId');
+
+    // Lazy initialization: If no subscription, try to assign default free plan
+    if (!sub) {
+      const roleStr = account.role as string;
+      let planType = 'institute';
+      if (roleStr === 'teacher') planType = 'teacher';
+      else if (roleStr === 'supplier' || roleStr === 'vendor') planType = 'vendor';
+
+      const freePlan = await SubscriptionPlan.findOne({ planType, price: 0, isActive: true });
 
       if (freePlan) {
         const startDate = new Date();
         const endDate = new Date();
         endDate.setDate(endDate.getDate() + freePlan.duration);
 
-        user.subscription = {
-          planId: freePlan._id as any,
+        sub = await Subscription.create({
+          accountId: req.params.userId,
+          planId: freePlan._id,
           status: 'active',
           paymentStatus: 'completed',
           startDate,
@@ -159,43 +156,33 @@ export const getUserSubscription = async (req: Request, res: Response) => {
           browseCount: 0,
           browseCountLimit: freePlan.features.maxBrowsesPerMonth || 0,
           lastBrowseReset: startDate,
-          notes: 'Free plan assigned automatically'
-        };
-
-        await user.save();
-        await user.populate('subscription.planId');
+          notes: 'Free plan assigned automatically',
+        });
+        await sub.populate('planId');
       }
     }
 
-    if (!user.subscription) {
-      return res.json(null);
-    }
+    if (!sub) return res.json(null);
 
-    const plan = user.subscription.planId as any;
-    
-    // Convert subscription subdocument to plain object
-    const subscriptionData = user.subscription ? {
-      planId: user.subscription.planId,
-      status: user.subscription.status,
-      paymentStatus: user.subscription.paymentStatus,
-      transactionId: user.subscription.transactionId,
-      startDate: user.subscription.startDate,
-      endDate: user.subscription.endDate,
-      listingsUsed: user.subscription.listingsUsed,
-      listingsLimit: user.subscription.listingsLimit,
-      jobPostsUsed: user.subscription.jobPostsUsed,
-      jobPostsLimit: user.subscription.jobPostsLimit,
-      browseCount: user.subscription.browseCount,
-      browseCountLimit: user.subscription.browseCountLimit,
-      lastBrowseReset: user.subscription.lastBrowseReset,
-      notes: user.subscription.notes,
-    } : null;
-    
+    const plan = sub.planId as any;
+
     res.json({
-      ...subscriptionData,
+      planId: sub.planId,
+      status: sub.status,
+      paymentStatus: sub.paymentStatus,
+      transactionId: sub.transactionId,
+      startDate: sub.startDate,
+      endDate: sub.endDate,
+      listingsUsed: sub.listingsUsed,
+      listingsLimit: sub.listingsLimit,
+      jobPostsUsed: sub.jobPostsUsed,
+      jobPostsLimit: sub.jobPostsLimit,
+      browseCount: sub.browseCount,
+      browseCountLimit: sub.browseCountLimit,
+      lastBrowseReset: sub.lastBrowseReset,
+      notes: sub.notes,
       planName: plan?.displayName || plan?.name || 'Unknown Plan',
-      planId: plan?._id || user.subscription.planId,
-      subscriptionPlanId: plan?._id || user.subscription.planId, // Map for frontend compatibility
+      subscriptionPlanId: plan?._id || sub.planId,
     });
   } catch (error: any) {
     res.status(500).json({ error: error.message || 'Failed to fetch user subscription' });
@@ -204,32 +191,32 @@ export const getUserSubscription = async (req: Request, res: Response) => {
 
 export const getAllUserSubscriptions = async (req: Request, res: Response) => {
   try {
-    const users = await User.find({ 'subscription.planId': { $exists: true } })
-      .populate('subscription.planId')
-      .select('name email subscription role')
-      .sort({ 'subscription.startDate': -1 });
-    
-    const subscriptions = users.map(user => ({
-      id: user._id, // Use userId as the ID for simpler management
-      userId: user._id,
-      userName: user.name,
-      userEmail: user.email,
-      userRole: user.role,
-      planId: (user.subscription?.planId as any)?._id || user.subscription?.planId,
-      planName: (user.subscription?.planId as any)?.displayName || 'Unknown Plan',
-      status: user.subscription?.status,
-      paymentStatus: user.subscription?.paymentStatus,
-      startDate: user.subscription?.startDate,
-      endDate: user.subscription?.endDate,
-      listingsLimit: user.subscription?.listingsLimit,
-      listingsUsed: user.subscription?.listingsUsed,
-      browseCountLimit: user.subscription?.browseCountLimit,
-      browseCountUsed: user.subscription?.browseCount,
-      notes: user.subscription?.notes,
-      createdAt: user.subscription?.startDate,
-      updatedAt: user.subscription?.lastBrowseReset,
+    const subs = await Subscription.find({ planId: { $exists: true } })
+      .populate('planId')
+      .populate('accountId', 'name email role')
+      .sort({ startDate: -1 });
+
+    const subscriptions = subs.map((sub: any) => ({
+      id: sub.accountId?._id || sub.accountId,
+      userId: sub.accountId?._id || sub.accountId,
+      userName: sub.accountId?.name,
+      userEmail: sub.accountId?.email,
+      userRole: sub.accountId?.role,
+      planId: (sub.planId as any)?._id || sub.planId,
+      planName: (sub.planId as any)?.displayName || 'Unknown Plan',
+      status: sub.status,
+      paymentStatus: sub.paymentStatus,
+      startDate: sub.startDate,
+      endDate: sub.endDate,
+      listingsLimit: sub.listingsLimit,
+      listingsUsed: sub.listingsUsed,
+      browseCountLimit: sub.browseCountLimit,
+      browseCountUsed: sub.browseCount,
+      notes: sub.notes,
+      createdAt: sub.startDate,
+      updatedAt: sub.lastBrowseReset,
     }));
-    
+
     res.json(subscriptions);
   } catch (error: any) {
     res.status(500).json({ error: error.message || 'Failed to fetch user subscriptions' });
@@ -239,43 +226,40 @@ export const getAllUserSubscriptions = async (req: Request, res: Response) => {
 export const assignSubscription = async (req: Request, res: Response) => {
   try {
     const { userId, planId, duration, customListingsLimit, customBrowseLimit, notes } = req.body;
-    
-    const user = await User.findById(userId);
+
     const plan = await SubscriptionPlan.findById(planId);
-    
-    if (!user) {
-      return res.status(404).json({ error: 'User not found' });
-    }
-    
-    if (!plan) {
-      return res.status(404).json({ error: 'Subscription plan not found' });
-    }
-    
+    const accountExists = await Account.findById(userId);
+
+    if (!accountExists) return res.status(404).json({ error: 'User not found' });
+    if (!plan) return res.status(404).json({ error: 'Subscription plan not found' });
+
     const startDate = new Date();
     const endDate = new Date(startDate);
     endDate.setDate(endDate.getDate() + duration);
-    
-    user.subscription = {
-      planId,
-      status: 'active',
-      paymentStatus: plan.price > 0 ? 'pending' : 'completed',
-      startDate: startDate,
-      endDate: endDate,
-      listingsLimit: customListingsLimit || plan.features.maxVehicleListings || 0,
-      listingsUsed: 0,
-      jobPostsUsed: 0,
-      jobPostsLimit: plan.features.maxJobPosts || 0,
-      browseCount: 0,
-      browseCountLimit: customBrowseLimit || plan.features.maxBrowsesPerMonth || 0,
-      lastBrowseReset: startDate,
-      notes: notes || '',
-    };
-    
-    await user.save();
-    
-    await user.populate('subscription.planId');
-    
-    res.status(201).json(user.subscription);
+
+    const sub = await Subscription.findOneAndUpdate(
+      { accountId: userId },
+      {
+        accountId: userId,
+        planId,
+        status: 'active',
+        paymentStatus: plan.price > 0 ? 'pending' : 'completed',
+        startDate,
+        endDate,
+        listingsLimit: customListingsLimit || plan.features.maxVehicleListings || 0,
+        listingsUsed: 0,
+        jobPostsUsed: 0,
+        jobPostsLimit: plan.features.maxJobPosts || 0,
+        browseCount: 0,
+        browseCountLimit: customBrowseLimit || plan.features.maxBrowsesPerMonth || 0,
+        lastBrowseReset: startDate,
+        notes: notes || '',
+      },
+      { upsert: true, new: true }
+    );
+
+    await sub.populate('planId');
+    res.status(201).json(sub);
   } catch (error: any) {
     res.status(400).json({ error: error.message || 'Failed to assign subscription' });
   }
@@ -285,23 +269,19 @@ export const extendSubscription = async (req: Request, res: Response) => {
   try {
     const { newEndDate, notes, paymentStatus } = req.body;
     const userId = req.params.id;
-    
-    const user = await User.findById(userId);
-    
-    if (!user || !user.subscription) {
-      return res.status(404).json({ error: 'User subscription not found' });
-    }
-    
-    if (newEndDate) user.subscription.endDate = new Date(newEndDate);
-    user.subscription.status = 'active';
-    if (paymentStatus) user.subscription.paymentStatus = paymentStatus;
-    if (notes) user.subscription.notes = notes;
-    // Note: updatedAt is handled by mongoose timestamps on the user document
-    
-    await user.save();
-    await user.populate('subscription.planId');
-    
-    res.json(user.subscription);
+
+    const sub = await Subscription.findOne({ accountId: userId });
+    if (!sub) return res.status(404).json({ error: 'User subscription not found' });
+
+    if (newEndDate) sub.endDate = new Date(newEndDate);
+    sub.status = 'active';
+    if (paymentStatus) sub.paymentStatus = paymentStatus;
+    if (notes) sub.notes = notes;
+
+    await sub.save();
+    await sub.populate('planId');
+
+    res.json(sub);
   } catch (error: any) {
     res.status(400).json({ error: error.message || 'Failed to extend subscription' });
   }
@@ -311,37 +291,31 @@ export const changePlan = async (req: Request, res: Response) => {
   try {
     const { planId, notes } = req.body;
     const userId = req.params.id;
-    
-    const user = await User.findById(userId);
+
+    const sub = await Subscription.findOne({ accountId: userId });
     const plan = await SubscriptionPlan.findById(planId);
-    
-    if (!user || !user.subscription) {
-      return res.status(404).json({ error: 'User or subscription not found' });
-    }
-    
-    if (!plan) {
-      return res.status(404).json({ error: 'Subscription plan not found' });
-    }
-    
+
+    if (!sub) return res.status(404).json({ error: 'User or subscription not found' });
+    if (!plan) return res.status(404).json({ error: 'Subscription plan not found' });
+
     const startDate = new Date();
     const endDate = new Date(startDate);
     endDate.setDate(endDate.getDate() + plan.duration);
-    
-    user.subscription.planId = plan._id as any;
-    user.subscription.status = 'active';
-    user.subscription.paymentStatus = plan.price > 0 ? 'pending' : 'completed';
-    user.subscription.startDate = startDate;
-    user.subscription.endDate = endDate;
-    user.subscription.listingsLimit = plan.features.maxVehicleListings || 0;
-    user.subscription.jobPostsLimit = plan.features.maxJobPosts || 0;
-    user.subscription.browseCountLimit = plan.features.maxBrowsesPerMonth || 0;
-    user.subscription.notes = notes || `Plan changed by admin to ${plan.displayName}`;
-    // Note: updatedAt is handled by mongoose timestamps on the user document
-    
-    await user.save();
-    await user.populate('subscription.planId');
-    
-    res.json(user.subscription);
+
+    sub.planId = plan._id as any;
+    sub.status = 'active';
+    sub.paymentStatus = plan.price > 0 ? 'pending' : 'completed';
+    sub.startDate = startDate;
+    sub.endDate = endDate;
+    sub.listingsLimit = plan.features.maxVehicleListings || 0;
+    sub.jobPostsLimit = plan.features.maxJobPosts || 0;
+    sub.browseCountLimit = plan.features.maxBrowsesPerMonth || 0;
+    sub.notes = notes || `Plan changed by admin to ${plan.displayName}`;
+
+    await sub.save();
+    await sub.populate('planId');
+
+    res.json(sub);
   } catch (error: any) {
     res.status(400).json({ error: error.message || 'Failed to change plan' });
   }
@@ -350,19 +324,17 @@ export const changePlan = async (req: Request, res: Response) => {
 export const resetBrowseCount = async (req: Request, res: Response) => {
   try {
     const userId = req.params.id;
-    const user = await User.findById(userId);
-    
-    if (!user || !user.subscription) {
-      return res.status(404).json({ error: 'User subscription not found' });
-    }
-    
-    user.subscription.browseCount = 0;
-    user.subscription.lastBrowseReset = new Date();
-    
-    await user.save();
-    await user.populate('subscription.planId');
-    
-    res.json(user.subscription);
+    const sub = await Subscription.findOne({ accountId: userId });
+
+    if (!sub) return res.status(404).json({ error: 'User subscription not found' });
+
+    sub.browseCount = 0;
+    sub.lastBrowseReset = new Date();
+
+    await sub.save();
+    await sub.populate('planId');
+
+    res.json(sub);
   } catch (error: any) {
     res.status(500).json({ error: error.message || 'Failed to reset browse count' });
   }
@@ -372,20 +344,17 @@ export const suspendSubscription = async (req: Request, res: Response) => {
   try {
     const { reason } = req.body;
     const userId = req.params.id;
-    
-    const user = await User.findById(userId);
-    
-    if (!user || !user.subscription) {
-      return res.status(404).json({ error: 'User subscription not found' });
-    }
-    
-    user.subscription.status = 'suspended';
-    user.subscription.notes = reason || user.subscription.notes;
-    
-    await user.save();
-    await user.populate('subscription.planId');
-    
-    res.json(user.subscription);
+
+    const sub = await Subscription.findOne({ accountId: userId });
+    if (!sub) return res.status(404).json({ error: 'User subscription not found' });
+
+    sub.status = 'suspended';
+    if (reason) sub.notes = reason;
+
+    await sub.save();
+    await sub.populate('planId');
+
+    res.json(sub);
   } catch (error: any) {
     res.status(500).json({ error: error.message || 'Failed to suspend subscription' });
   }
@@ -394,28 +363,24 @@ export const suspendSubscription = async (req: Request, res: Response) => {
 export const reactivateSubscription = async (req: Request, res: Response) => {
   try {
     const userId = req.params.id;
-    const user = await User.findById(userId);
-    
-    if (!user || !user.subscription) {
-      return res.status(404).json({ error: 'User subscription not found' });
-    }
-    
-    // Check if subscription has expired
+    const sub = await Subscription.findOne({ accountId: userId });
+
+    if (!sub) return res.status(404).json({ error: 'User subscription not found' });
+
     const now = new Date();
-    const endDate = new Date(user.subscription.endDate!);
-    
+    const endDate = new Date(sub.endDate);
+
     if (now > endDate) {
-      return res.status(400).json({ 
-        error: 'Cannot reactivate expired subscription. Please extend the subscription first.' 
+      return res.status(400).json({
+        error: 'Cannot reactivate expired subscription. Please extend the subscription first.',
       });
     }
-    
-    user.subscription.status = 'active';
-    
-    await user.save();
-    await user.populate('subscription.planId');
-    
-    res.json(user.subscription);
+
+    sub.status = 'active';
+    await sub.save();
+    await sub.populate('planId');
+
+    res.json(sub);
   } catch (error: any) {
     res.status(500).json({ error: error.message || 'Failed to reactivate subscription' });
   }
@@ -424,15 +389,12 @@ export const reactivateSubscription = async (req: Request, res: Response) => {
 export const cancelSubscription = async (req: Request, res: Response) => {
   try {
     const userId = req.params.id;
-    const user = await User.findById(userId);
-    
-    if (!user || !user.subscription) {
-      return res.status(404).json({ error: 'User subscription not found' });
-    }
-    
-    user.subscription = undefined;
-    await user.save();
-    
+    const sub = await Subscription.findOne({ accountId: userId });
+
+    if (!sub) return res.status(404).json({ error: 'User subscription not found' });
+
+    await Subscription.findByIdAndDelete(sub._id);
+
     res.json({ message: 'Subscription cancelled successfully' });
   } catch (error: any) {
     res.status(500).json({ error: error.message || 'Failed to cancel subscription' });
@@ -442,26 +404,21 @@ export const cancelSubscription = async (req: Request, res: Response) => {
 export const continueOwnSubscription = async (req: AuthRequest, res: Response) => {
   try {
     const userId = req.account?.id;
-    if (!userId) {
-      return res.status(401).json({ error: 'User ID not found' });
-    }
+    if (!userId) return res.status(401).json({ error: 'User ID not found' });
 
     const { newEndDate, notes } = req.body;
-    const user = await User.findById(userId);
+    const sub = await Subscription.findOne({ accountId: userId });
 
-    if (!user || !user.subscription) {
-      return res.status(404).json({ error: 'User subscription not found' });
-    }
+    if (!sub) return res.status(404).json({ error: 'User subscription not found' });
 
-    user.subscription.endDate = newEndDate;
-    user.subscription.status = 'active';
-    if (notes) user.subscription.notes = notes;
-    // Note: updatedAt is handled by mongoose timestamps on the user document
+    sub.endDate = newEndDate;
+    sub.status = 'active';
+    if (notes) sub.notes = notes;
 
-    await user.save();
-    await user.populate('subscription.planId');
+    await sub.save();
+    await sub.populate('planId');
 
-    res.json(user.subscription);
+    res.json(sub);
   } catch (error: any) {
     res.status(400).json({ error: error.message || 'Failed to continue subscription' });
   }
@@ -473,14 +430,9 @@ export const continueOwnSubscription = async (req: AuthRequest, res: Response) =
 
 export const getUsageStats = async (req: Request, res: Response) => {
   try {
-    const user = await User.findById(req.params.userId).populate('subscription.planId');
-    
-    if (!user) {
-      return res.status(404).json({ error: 'User not found' });
-    }
+    const sub = await Subscription.findOne({ accountId: req.params.userId }).populate('planId');
 
-    // Default empty stats if no subscription
-    if (!user.subscription) {
+    if (!sub) {
       return res.json({
         planName: 'None',
         status: 'none',
@@ -496,47 +448,45 @@ export const getUsageStats = async (req: Request, res: Response) => {
         isExpiringSoon: false,
       });
     }
-    
+
     const now = new Date();
-    const endDate = new Date(user.subscription.endDate || now);
+    const endDate = new Date(sub.endDate || now);
     const daysRemaining = Math.max(0, Math.ceil((endDate.getTime() - now.getTime()) / (1000 * 60 * 60 * 24)));
-    
-    const plan = user.subscription.planId as any;
-    const listingsLimit = user.subscription.listingsLimit || plan?.features?.maxListings || 0;
-    const browseCountLimit = user.subscription.browseCountLimit || plan?.features?.maxBrowsesPerMonth || 0;
-    const jobPostsLimit = user.subscription.jobPostsLimit || plan?.features?.maxJobPosts || 0;
-    
-    const stats = {
+
+    const plan = sub.planId as any;
+    const listingsLimit = sub.listingsLimit || plan?.features?.maxListings || 0;
+    const browseCountLimit = sub.browseCountLimit || plan?.features?.maxBrowsesPerMonth || 0;
+    const jobPostsLimit = sub.jobPostsLimit || plan?.features?.maxJobPosts || 0;
+
+    res.json({
       planName: plan?.displayName || plan?.name || 'Unknown',
-      status: user.subscription.status,
-      paymentStatus: user.subscription.paymentStatus,
+      status: sub.status,
+      paymentStatus: sub.paymentStatus,
       daysRemaining,
       browseCount: {
-        used: user.subscription.browseCount || 0,
+        used: sub.browseCount || 0,
         allowed: browseCountLimit,
-        remaining: Math.max(0, browseCountLimit - (user.subscription.browseCount || 0)),
-        percentage: browseCountLimit > 0 ? (user.subscription.browseCount / browseCountLimit) * 100 : 0,
+        remaining: Math.max(0, browseCountLimit - (sub.browseCount || 0)),
+        percentage: browseCountLimit > 0 ? (sub.browseCount / browseCountLimit) * 100 : 0,
       },
       listingCount: {
-        used: user.subscription.listingsUsed || 0,
+        used: sub.listingsUsed || 0,
         allowed: listingsLimit,
-        remaining: Math.max(0, listingsLimit - (user.subscription.listingsUsed || 0)),
-        percentage: listingsLimit > 0 ? (user.subscription.listingsUsed / listingsLimit) * 100 : 0,
+        remaining: Math.max(0, listingsLimit - (sub.listingsUsed || 0)),
+        percentage: listingsLimit > 0 ? (sub.listingsUsed / listingsLimit) * 100 : 0,
       },
       jobPostsCount: {
-        used: user.subscription.jobPostsUsed || 0,
+        used: sub.jobPostsUsed || 0,
         allowed: jobPostsLimit,
-        remaining: Math.max(0, jobPostsLimit - (user.subscription.jobPostsUsed || 0)),
-        percentage: jobPostsLimit > 0 ? (user.subscription.jobPostsUsed / jobPostsLimit) * 100 : 0,
+        remaining: Math.max(0, jobPostsLimit - (sub.jobPostsUsed || 0)),
+        percentage: jobPostsLimit > 0 ? (sub.jobPostsUsed / jobPostsLimit) * 100 : 0,
       },
-      startDate: user.subscription.startDate,
-      endDate: user.subscription.endDate,
-      lastBrowseReset: user.subscription.lastBrowseReset,
+      startDate: sub.startDate,
+      endDate: sub.endDate,
+      lastBrowseReset: sub.lastBrowseReset,
       isExpired: now > endDate,
       isExpiringSoon: daysRemaining <= 7 && daysRemaining > 0,
-    };
-    
-    res.json(stats);
+    });
   } catch (error: any) {
     res.status(500).json({ error: error.message || 'Failed to fetch usage stats' });
   }
@@ -544,34 +494,31 @@ export const getUsageStats = async (req: Request, res: Response) => {
 
 export const getGlobalStats = async (req: Request, res: Response) => {
   try {
-    const users = await User.find({ 'subscription.planId': { $exists: true } });
-    
-    const totalSubscriptions = users.length;
-    const activeSubscriptions = users.filter(u => u.subscription?.status === 'active').length;
-    const expiredSubscriptions = users.filter(u => u.subscription?.status === 'expired').length;
-    const suspendedSubscriptions = users.filter(u => u.subscription?.status === 'suspended').length;
-    
+    const allSubs = await Subscription.find({ planId: { $exists: true } }).populate('planId');
+
+    const totalSubscriptions = allSubs.length;
+    const activeSubscriptions = allSubs.filter(s => s.status === 'active').length;
+    const expiredSubscriptions = allSubs.filter(s => s.status === 'expired').length;
+    const suspendedSubscriptions = allSubs.filter(s => s.status === 'suspended').length;
+
     const now = new Date();
     const sevenDaysFromNow = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000);
-    const expiringSoon = users.filter(u => {
-      if (!u.subscription?.endDate) return false;
-      const endDate = new Date(u.subscription.endDate);
+    const expiringSoon = allSubs.filter(s => {
+      if (!s.endDate) return false;
+      const endDate = new Date(s.endDate);
       return endDate > now && endDate <= sevenDaysFromNow;
     }).length;
-    
+
     const plans = await SubscriptionPlan.find();
     const totalPlans = plans.length;
     const activePlans = plans.filter(p => p.isActive).length;
-    
-    const totalRevenue = users.reduce((sum, u) => {
-      if (u.subscription?.planId) {
-        const plan = plans.find(p => p._id.toString() === u.subscription?.planId?.toString());
-        return sum + (plan?.price || 0);
-      }
-      return sum;
+
+    const totalRevenue = allSubs.reduce((sum, s) => {
+      const plan = plans.find(p => p._id.toString() === s.planId?.toString());
+      return sum + (plan?.price || 0);
     }, 0);
-    
-    const stats = {
+
+    res.json({
       subscriptions: {
         total: totalSubscriptions,
         active: activeSubscriptions,
@@ -579,16 +526,9 @@ export const getGlobalStats = async (req: Request, res: Response) => {
         suspended: suspendedSubscriptions,
         expiringSoon,
       },
-      plans: {
-        total: totalPlans,
-        active: activePlans,
-      },
-      revenue: {
-        total: totalRevenue,
-      },
-    };
-    
-    res.json(stats);
+      plans: { total: totalPlans, active: activePlans },
+      revenue: { total: totalRevenue },
+    });
   } catch (error: any) {
     res.status(500).json({ error: error.message || 'Failed to fetch global stats' });
   }
@@ -597,31 +537,28 @@ export const getGlobalStats = async (req: Request, res: Response) => {
 export const getPlanStats = async (req: Request, res: Response) => {
   try {
     const plans = await SubscriptionPlan.find();
-    const users = await User.find({ 'subscription.planId': { $exists: true } });
-    
+    const allSubs = await Subscription.find({ planId: { $exists: true } });
+
     const planStats = plans.map(plan => {
-      const activeSubs = users.filter(u => 
-        u.subscription?.planId?.toString() === plan._id.toString() &&
-        u.subscription?.status === 'active'
+      const activeSubs = allSubs.filter(s =>
+        s.planId?.toString() === plan._id.toString() && s.status === 'active'
       ).length;
-      
-      const totalSubs = users.filter(u => 
-        u.subscription?.planId?.toString() === plan._id.toString()
+
+      const totalSubs = allSubs.filter(s =>
+        s.planId?.toString() === plan._id.toString()
       ).length;
-      
-      const revenue = totalSubs * plan.price;
-      
+
       return {
         planId: plan._id,
         planName: plan.name,
         price: plan.price,
         activeSubscriptions: activeSubs,
         totalSubscriptions: totalSubs,
-        revenue,
+        revenue: totalSubs * plan.price,
         isActive: plan.isActive,
       };
     });
-    
+
     res.json(planStats);
   } catch (error: any) {
     res.status(500).json({ error: error.message || 'Failed to fetch plan stats' });
@@ -631,57 +568,58 @@ export const getPlanStats = async (req: Request, res: Response) => {
 export const getFilteredSubscriptions = async (req: Request, res: Response) => {
   try {
     const { status, planId, search, sortBy = 'startDate', sortOrder = 'desc', page = 1, pageSize = 20 } = req.query;
-    
-    const query: any = { 'subscription.planId': { $exists: true } };
-    
-    if (status) {
-      query['subscription.status'] = status;
-    }
-    
-    if (planId) {
-      query['subscription.planId'] = planId;
-    }
-    
-    if (search) {
-      query.$or = [
-        { name: { $regex: search, $options: 'i' } },
-        { email: { $regex: search, $options: 'i' } },
-      ];
-    }
-    
+
+    const subQuery: any = { planId: { $exists: true } };
+    if (status) subQuery.status = status;
+    if (planId) subQuery.planId = planId;
+
     const sortDirection = sortOrder === 'desc' ? -1 : 1;
-    const sortField = `subscription.${sortBy}`;
-    
+
     const skip = (Number(page) - 1) * Number(pageSize);
     const limit = Number(pageSize);
-    
-    const users = await User.find(query)
-      .populate('subscription.planId')
-      .sort({ [sortField]: sortDirection })
-      .skip(skip)
-      .limit(limit);
-    
-    const total = await User.countDocuments(query);
-    
-    const subscriptions = users.map(user => ({
-      id: user._id, // Use userId as the ID for simpler management
-      userId: user._id,
-      userName: user.name,
-      userEmail: user.email,
-      userRole: user.role,
-      planId: (user.subscription?.planId as any)?._id || user.subscription?.planId,
-      planName: (user.subscription?.planId as any)?.displayName || 'Unknown Plan',
-      status: user.subscription?.status,
-      paymentStatus: user.subscription?.paymentStatus,
-      startDate: user.subscription?.startDate,
-      endDate: user.subscription?.endDate,
-      listingsLimit: user.subscription?.listingsLimit,
-      listingsUsed: user.subscription?.listingsUsed,
-      browseCountLimit: user.subscription?.browseCountLimit,
-      browseCountUsed: user.subscription?.browseCount,
-      notes: user.subscription?.notes,
-      createdAt: user.subscription?.startDate,
-      updatedAt: user.subscription?.lastBrowseReset,
+
+    // If search is needed, we join via accountId
+    if (search) {
+      const searchFilter: any = {
+        $or: [
+          { name: { $regex: search, $options: 'i' } },
+          { email: { $regex: search, $options: 'i' } },
+        ],
+      };
+      const matchingAccounts = await Account.find(searchFilter).select('_id');
+      const accountIds = matchingAccounts.map(a => a._id);
+      subQuery.accountId = { $in: accountIds };
+    }
+
+    const [subs, total] = await Promise.all([
+      Subscription.find(subQuery)
+        .populate('planId')
+        .populate('accountId', 'name email role')
+        .sort({ [sortBy as string]: sortDirection })
+        .skip(skip)
+        .limit(limit),
+      Subscription.countDocuments(subQuery),
+    ]);
+
+    const subscriptions = subs.map((sub: any) => ({
+      id: sub.accountId?._id || sub.accountId,
+      userId: sub.accountId?._id || sub.accountId,
+      userName: sub.accountId?.name,
+      userEmail: sub.accountId?.email,
+      userRole: sub.accountId?.role,
+      planId: (sub.planId as any)?._id || sub.planId,
+      planName: (sub.planId as any)?.displayName || 'Unknown Plan',
+      status: sub.status,
+      paymentStatus: sub.paymentStatus,
+      startDate: sub.startDate,
+      endDate: sub.endDate,
+      listingsLimit: sub.listingsLimit,
+      listingsUsed: sub.listingsUsed,
+      browseCountLimit: sub.browseCountLimit,
+      browseCountUsed: sub.browseCount,
+      notes: sub.notes,
+      createdAt: sub.startDate,
+      updatedAt: sub.lastBrowseReset,
     }));
 
     res.json({
@@ -709,10 +647,10 @@ export const createSubscriptionRequest = async (req: AuthRequest, res: Response)
 
     const { requestedPlanId, requestType, userNotes } = req.body;
 
-    const user = await User.findById(userId);
+    const account = await Account.findById(userId);
     const requestedPlan = await SubscriptionPlan.findById(requestedPlanId);
-    
-    if (!user) {
+
+    if (!account) {
       return res.status(404).json({ error: 'User not found' });
     }
 
@@ -731,7 +669,8 @@ export const createSubscriptionRequest = async (req: AuthRequest, res: Response)
     }
 
     // Handle both with and without existing subscription
-    const currentPlanId = user.subscription?.planId || null;
+    const existingSub = await Subscription.findOne({ accountId: userId });
+    const currentPlanId = existingSub?.planId || null;
     
     const request = new SubscriptionRequest({
       userId,
@@ -788,41 +727,32 @@ export const updateSubscriptionRequest = async (req: Request, res: Response) => 
     request.updatedAt = new Date();
 
     if (status === 'approved') {
-      const user = await User.findById(request.userId);
       const plan = await SubscriptionPlan.findById(request.requestedPlanId);
 
-      if (user && plan) {
-        // Apply the new plan
-        if (user.subscription) {
-          const startDate = new Date();
-          const endDate = new Date(startDate);
-          endDate.setDate(endDate.getDate() + plan.duration);
+      if (plan) {
+        const startDate = new Date();
+        const endDate = new Date(startDate);
+        endDate.setDate(endDate.getDate() + plan.duration);
 
-          user.subscription.planId = plan._id as any;
-          user.subscription.listingsLimit = plan.features.maxVehicleListings || 0;
-          user.subscription.browseCountLimit = plan.features.maxBrowsesPerMonth || 0;
-          user.subscription.jobPostsLimit = plan.features.maxJobPosts || 0;
-          
-          // Reset usage if it's a renewal or upgrade
-          // This gives them a fresh start with the new plan
-          user.subscription.listingsUsed = 0;
-          user.subscription.browseCount = 0;
-          user.subscription.jobPostsUsed = 0;
-
-          user.subscription.status = 'active';
-          // If it's a paid plan, set to pending until admin verifies payment
-          // If it's free, mark as completed
-          user.subscription.paymentStatus = plan.price > 0 ? 'pending' : 'completed';
-          user.subscription.startDate = startDate;
-          user.subscription.endDate = endDate;
-          user.subscription.notes = `Plan changed via request: ${request.requestType}. ${adminNotes || ''}`;
-          // Note: updatedAt is handled by mongoose timestamps on the user document
-          
-          // Force reset of browse count reset date to now
-          user.subscription.lastBrowseReset = startDate;
-          
-          await user.save();
-        }
+        await Subscription.findOneAndUpdate(
+          { accountId: request.userId },
+          {
+            planId: plan._id,
+            listingsLimit: plan.features.maxVehicleListings || 0,
+            browseCountLimit: plan.features.maxBrowsesPerMonth || 0,
+            jobPostsLimit: plan.features.maxJobPosts || 0,
+            listingsUsed: 0,
+            browseCount: 0,
+            jobPostsUsed: 0,
+            status: 'active',
+            paymentStatus: plan.price > 0 ? 'pending' : 'completed',
+            startDate,
+            endDate,
+            notes: `Plan changed via request: ${request.requestType}. ${adminNotes || ''}`,
+            lastBrowseReset: startDate,
+          },
+          { upsert: true, new: true }
+        );
       }
     }
 
@@ -856,23 +786,19 @@ export const getUserSubscriptionRequests = async (req: AuthRequest, res: Respons
 // ==========================================
 
 // Helper function to check if subscription needs billing reset
-const checkAndResetBillingPeriod = async (user: any) => {
-  if (!user.subscription || !user.subscription.lastBrowseReset) {
-    return false;
-  }
+const checkAndResetBillingPeriod = async (sub: any) => {
+  if (!sub || !sub.lastBrowseReset) return false;
 
   const now = new Date();
-  const lastReset = new Date(user.subscription.lastBrowseReset);
+  const lastReset = new Date(sub.lastBrowseReset);
   const daysSinceReset = Math.floor((now.getTime() - lastReset.getTime()) / (1000 * 60 * 60 * 24));
 
-  // Reset if 30 days have passed
   if (daysSinceReset >= 30) {
-    user.subscription.browseCount = 0;
-    user.subscription.lastBrowseReset = now;
-    await user.save();
+    sub.browseCount = 0;
+    sub.lastBrowseReset = now;
+    await sub.save();
     return true;
   }
-
   return false;
 };
 
@@ -884,70 +810,38 @@ const isCompanyUser = (role: string) => {
 export const checkBrowseLimit = async (req: AuthRequest, res: Response) => {
   try {
     const userId = req.account?.id;
-    if (!userId) {
-      return res.status(401).json({ error: 'User ID not found' });
+    if (!userId) return res.status(401).json({ error: 'User ID not found' });
+
+    const account = await Account.findById(userId);
+    if (!account) return res.status(404).json({ error: 'User not found' });
+
+    if (isCompanyUser(account.role)) {
+      return res.json({ allowed: true, remaining: 999999, limitReached: false, subscription: null, message: 'Company user bypass' });
     }
 
-    const user = await User.findById(userId).populate('subscription.planId');
-    
-    if (!user) {
-      return res.status(404).json({ error: 'User not found' });
+    const sub = await Subscription.findOne({ accountId: userId }).populate('planId');
+
+    await checkAndResetBillingPeriod(sub);
+
+    if (!sub || !sub.planId) {
+      return res.json({ allowed: true, remaining: 10, limitReached: false, subscription: null, message: 'Using free plan limits' });
     }
 
-    // Admin, Sales, and Marketing bypass subscription checks
-    if (isCompanyUser(user.role)) {
-      return res.json({
-        allowed: true,
-        remaining: 999999,
-        limitReached: false,
-        subscription: null,
-        message: 'Company user bypass',
-      });
+    if (sub.status !== 'active') {
+      return res.json({ allowed: false, remaining: 0, limitReached: true, subscription: sub, message: `Subscription is ${sub.status}` });
     }
 
-    // Check and reset billing period if needed
-    await checkAndResetBillingPeriod(user);
-
-    // No subscription - return default free limits
-    if (!user.subscription || !user.subscription.planId) {
-      return res.json({
-        allowed: true,
-        remaining: 10,
-        limitReached: false,
-        subscription: null,
-        message: 'Using free plan limits',
-      });
-    }
-
-    // Check subscription status
-    if (user.subscription.status !== 'active') {
-      return res.json({
-        allowed: false,
-        remaining: 0,
-        limitReached: true,
-        subscription: user.subscription,
-        message: `Subscription is ${user.subscription.status}`,
-      });
-    }
-
-    // Check if subscription expired
     const now = new Date();
-    const endDate = new Date(user.subscription.endDate || now);
+    const endDate = new Date(sub.endDate);
     if (now > endDate) {
-      user.subscription.status = 'expired';
-      await user.save();
-      return res.json({
-        allowed: false,
-        remaining: 0,
-        limitReached: true,
-        subscription: user.subscription,
-        message: 'Subscription has expired',
-      });
+      sub.status = 'expired';
+      await sub.save();
+      return res.json({ allowed: false, remaining: 0, limitReached: true, subscription: sub, message: 'Subscription has expired' });
     }
 
-    const plan = user.subscription.planId as any;
+    const plan = sub.planId as any;
     const maxBrowses = plan?.features?.maxBrowsesPerMonth || 0;
-    const browseCountUsed = user.subscription.browseCount || 0;
+    const browseCountUsed = sub.browseCount || 0;
     const remaining = Math.max(0, maxBrowses - browseCountUsed);
     const limitReached = remaining <= 0;
 
@@ -955,7 +849,7 @@ export const checkBrowseLimit = async (req: AuthRequest, res: Response) => {
       allowed: !limitReached,
       remaining,
       limitReached,
-      subscription: user.subscription,
+      subscription: sub,
       message: limitReached ? `Browse limit reached (${maxBrowses})` : undefined,
     });
   } catch (error: any) {
@@ -967,35 +861,21 @@ export const checkBrowseLimit = async (req: AuthRequest, res: Response) => {
 export const incrementBrowseCount = async (req: AuthRequest, res: Response) => {
   try {
     const userId = req.account?.id;
-    if (!userId) {
-      return res.status(401).json({ error: 'User ID not found' });
+    if (!userId) return res.status(401).json({ error: 'User ID not found' });
+
+    const sub = await Subscription.findOne({ accountId: userId });
+    if (!sub) return res.status(404).json({ error: 'User not found' });
+
+    await checkAndResetBillingPeriod(sub);
+
+    if (sub.status !== 'active') {
+      return res.json({ success: false, message: 'No active subscription' });
     }
 
-    const user = await User.findById(userId);
-    
-    if (!user) {
-      return res.status(404).json({ error: 'User not found' });
-    }
+    sub.browseCount = (sub.browseCount || 0) + 1;
+    await sub.save();
 
-    // Check and reset billing period if needed
-    await checkAndResetBillingPeriod(user);
-
-    if (!user.subscription || user.subscription.status !== 'active') {
-      return res.json({
-        success: false,
-        message: 'No active subscription',
-      });
-    }
-
-    // Increment browse count
-    user.subscription.browseCount = (user.subscription.browseCount || 0) + 1;
-    await user.save();
-
-    res.json({
-      success: true,
-      browseCount: user.subscription.browseCount,
-      message: 'Browse count incremented',
-    });
+    res.json({ success: true, browseCount: sub.browseCount, message: 'Browse count incremented' });
   } catch (error: any) {
     res.status(500).json({ error: error.message || 'Failed to increment browse count' });
   }
@@ -1005,67 +885,36 @@ export const incrementBrowseCount = async (req: AuthRequest, res: Response) => {
 export const checkListingLimit = async (req: AuthRequest, res: Response) => {
   try {
     const userId = req.account?.id;
-    if (!userId) {
-      return res.status(401).json({ error: 'User ID not found' });
+    if (!userId) return res.status(401).json({ error: 'User ID not found' });
+
+    const account = await Account.findById(userId);
+    if (!account) return res.status(404).json({ error: 'User not found' });
+
+    if (isCompanyUser(account.role)) {
+      return res.json({ allowed: true, remaining: 999999, limitReached: false, subscription: null, message: 'Company user bypass' });
     }
 
-    const user = await User.findById(userId).populate('subscription.planId');
-    
-    if (!user) {
-      return res.status(404).json({ error: 'User not found' });
+    const sub = await Subscription.findOne({ accountId: userId }).populate('planId');
+
+    if (!sub || !sub.planId) {
+      return res.json({ allowed: false, remaining: 2, limitReached: true, subscription: null, message: 'No active subscription. Listing creation not allowed.' });
     }
 
-    // Admin, Sales, and Marketing bypass subscription checks
-    if (isCompanyUser(user.role)) {
-      return res.json({
-        allowed: true,
-        remaining: 999999,
-        limitReached: false,
-        subscription: null,
-        message: 'Company user bypass',
-      });
+    if (sub.status !== 'active') {
+      return res.json({ allowed: false, remaining: 0, limitReached: true, subscription: sub, message: `Subscription is ${sub.status}. Cannot create listings.` });
     }
 
-    // No subscription - use free plan limits (2 listings)
-    if (!user.subscription || !user.subscription.planId) {
-      return res.json({
-        allowed: false,
-        remaining: 2,
-        limitReached: true,
-        subscription: null,
-        message: 'No active subscription. Listing creation not allowed.',
-      });
-    }
-
-    // Check subscription status
-    if (user.subscription.status !== 'active') {
-      return res.json({
-        allowed: false,
-        remaining: 0,
-        limitReached: true,
-        subscription: user.subscription,
-        message: `Subscription is ${user.subscription.status}. Cannot create listings.`,
-      });
-    }
-
-    // Check if expired
     const now = new Date();
-    const endDate = new Date(user.subscription.endDate || now);
+    const endDate = new Date(sub.endDate);
     if (now > endDate) {
-      user.subscription.status = 'expired';
-      await user.save();
-      return res.json({
-        allowed: false,
-        remaining: 0,
-        limitReached: true,
-        subscription: user.subscription,
-        message: 'Subscription has expired. Cannot create listings.',
-      });
+      sub.status = 'expired';
+      await sub.save();
+      return res.json({ allowed: false, remaining: 0, limitReached: true, subscription: sub, message: 'Subscription has expired. Cannot create listings.' });
     }
 
-    const plan = user.subscription.planId as any;
+    const plan = sub.planId as any;
     const maxListings = plan?.features?.maxListings || 0;
-    const listingsUsed = user.subscription.listingsUsed || 0;
+    const listingsUsed = sub.listingsUsed || 0;
     const remaining = Math.max(0, maxListings - listingsUsed);
     const limitReached = remaining <= 0;
 
@@ -1073,7 +922,7 @@ export const checkListingLimit = async (req: AuthRequest, res: Response) => {
       allowed: !limitReached,
       remaining,
       limitReached,
-      subscription: user.subscription,
+      subscription: sub,
       message: limitReached ? `Listing limit reached (${maxListings}). Please upgrade.` : undefined,
     });
   } catch (error: any) {
@@ -1085,41 +934,25 @@ export const checkListingLimit = async (req: AuthRequest, res: Response) => {
 export const incrementListingCount = async (req: AuthRequest, res: Response) => {
   try {
     const userId = req.account?.id;
-    if (!userId) {
-      return res.status(401).json({ error: 'User ID not found' });
+    if (!userId) return res.status(401).json({ error: 'User ID not found' });
+
+    const account = await Account.findById(userId);
+    if (!account) return res.status(404).json({ error: 'User not found' });
+
+    if (isCompanyUser(account.role)) {
+      return res.json({ success: true, listingsUsed: 0, message: 'Company user bypass - count not tracked' });
     }
 
-    const user = await User.findById(userId);
-    
-    if (!user) {
-      return res.status(404).json({ error: 'User not found' });
+    const sub = await Subscription.findOne({ accountId: userId });
+
+    if (!sub || sub.status !== 'active') {
+      return res.json({ success: false, message: 'No active subscription' });
     }
 
-    // Admin, Sales, and Marketing bypass subscription checks
-    if (isCompanyUser(user.role)) {
-      return res.json({
-        success: true,
-        listingsUsed: 0,
-        message: 'Company user bypass - count not tracked',
-      });
-    }
+    sub.listingsUsed = (sub.listingsUsed || 0) + 1;
+    await sub.save();
 
-    if (!user.subscription || user.subscription.status !== 'active') {
-      return res.json({
-        success: false,
-        message: 'No active subscription',
-      });
-    }
-
-    // Increment listing count
-    user.subscription.listingsUsed = (user.subscription.listingsUsed || 0) + 1;
-    await user.save();
-
-    res.json({
-      success: true,
-      listingsUsed: user.subscription.listingsUsed,
-      message: 'Listing count incremented',
-    });
+    res.json({ success: true, listingsUsed: sub.listingsUsed, message: 'Listing count incremented' });
   } catch (error: any) {
     res.status(500).json({ error: error.message || 'Failed to increment listing count' });
   }
@@ -1129,34 +962,18 @@ export const incrementListingCount = async (req: AuthRequest, res: Response) => 
 export const decrementListingCount = async (req: AuthRequest, res: Response) => {
   try {
     const userId = req.account?.id;
-    if (!userId) {
-      return res.status(401).json({ error: 'User ID not found' });
+    if (!userId) return res.status(401).json({ error: 'User ID not found' });
+
+    const sub = await Subscription.findOne({ accountId: userId });
+
+    if (!sub) return res.json({ success: false, message: 'No subscription found' });
+
+    if ((sub.listingsUsed || 0) > 0) {
+      sub.listingsUsed = (sub.listingsUsed || 0) - 1;
+      await sub.save();
     }
 
-    const user = await User.findById(userId);
-    
-    if (!user) {
-      return res.status(404).json({ error: 'User not found' });
-    }
-
-    if (!user.subscription) {
-      return res.json({
-        success: false,
-        message: 'No subscription found',
-      });
-    }
-
-    // Decrement listing count
-    if ((user.subscription.listingsUsed || 0) > 0) {
-      user.subscription.listingsUsed = (user.subscription.listingsUsed || 0) - 1;
-      await user.save();
-    }
-
-    res.json({
-      success: true,
-      listingsUsed: user.subscription.listingsUsed,
-      message: 'Listing count decremented',
-    });
+    res.json({ success: true, listingsUsed: sub.listingsUsed, message: 'Listing count decremented' });
   } catch (error: any) {
     res.status(500).json({ error: error.message || 'Failed to decrement listing count' });
   }
@@ -1166,67 +983,36 @@ export const decrementListingCount = async (req: AuthRequest, res: Response) => 
 export const checkJobPostLimit = async (req: AuthRequest, res: Response) => {
   try {
     const userId = req.account?.id;
-    if (!userId) {
-      return res.status(401).json({ error: 'User ID not found' });
+    if (!userId) return res.status(401).json({ error: 'User ID not found' });
+
+    const account = await Account.findById(userId);
+    if (!account) return res.status(404).json({ error: 'User not found' });
+
+    if (isCompanyUser(account.role)) {
+      return res.json({ allowed: true, remaining: 999999, limitReached: false, subscription: null, message: 'Company user bypass' });
     }
 
-    const user = await User.findById(userId).populate('subscription.planId');
-    
-    if (!user) {
-      return res.status(404).json({ error: 'User not found' });
+    const sub = await Subscription.findOne({ accountId: userId }).populate('planId');
+
+    if (!sub || !sub.planId) {
+      return res.json({ allowed: false, remaining: 0, limitReached: true, subscription: null, message: 'No active subscription. Job posting not allowed.' });
     }
 
-    // Admin, Sales, and Marketing bypass subscription checks
-    if (isCompanyUser(user.role)) {
-      return res.json({
-        allowed: true,
-        remaining: 999999,
-        limitReached: false,
-        subscription: null,
-        message: 'Company user bypass',
-      });
+    if (sub.status !== 'active') {
+      return res.json({ allowed: false, remaining: 0, limitReached: true, subscription: sub, message: `Subscription is ${sub.status}. Cannot post jobs.` });
     }
 
-    // No subscription - use free plan limits (2 job posts)
-    if (!user.subscription || !user.subscription.planId) {
-      return res.json({
-        allowed: false,
-        remaining: 0,
-        limitReached: true,
-        subscription: null,
-        message: 'No active subscription. Job posting not allowed.',
-      });
-    }
-
-    // Check subscription status
-    if (user.subscription.status !== 'active') {
-      return res.json({
-        allowed: false,
-        remaining: 0,
-        limitReached: true,
-        subscription: user.subscription,
-        message: `Subscription is ${user.subscription.status}. Cannot post jobs.`,
-      });
-    }
-
-    // Check if expired
     const now = new Date();
-    const endDate = new Date(user.subscription.endDate || now);
+    const endDate = new Date(sub.endDate);
     if (now > endDate) {
-      user.subscription.status = 'expired';
-      await user.save();
-      return res.json({
-        allowed: false,
-        remaining: 0,
-        limitReached: true,
-        subscription: user.subscription,
-        message: 'Subscription has expired. Cannot post jobs.',
-      });
+      sub.status = 'expired';
+      await sub.save();
+      return res.json({ allowed: false, remaining: 0, limitReached: true, subscription: sub, message: 'Subscription has expired. Cannot post jobs.' });
     }
 
-    const plan = user.subscription.planId as any;
+    const plan = sub.planId as any;
     const maxJobPosts = plan?.features?.maxJobPosts || 0;
-    const jobPostsUsed = user.subscription.jobPostsUsed || 0;
+    const jobPostsUsed = sub.jobPostsUsed || 0;
     const remaining = Math.max(0, maxJobPosts - jobPostsUsed);
     const limitReached = remaining <= 0;
 
@@ -1234,7 +1020,7 @@ export const checkJobPostLimit = async (req: AuthRequest, res: Response) => {
       allowed: !limitReached,
       remaining,
       limitReached,
-      subscription: user.subscription,
+      subscription: sub,
       message: limitReached ? `Job post limit reached (${maxJobPosts}). Please upgrade.` : undefined,
     });
   } catch (error: any) {
@@ -1246,41 +1032,25 @@ export const checkJobPostLimit = async (req: AuthRequest, res: Response) => {
 export const incrementJobPostCount = async (req: AuthRequest, res: Response) => {
   try {
     const userId = req.account?.id;
-    if (!userId) {
-      return res.status(401).json({ error: 'User ID not found' });
+    if (!userId) return res.status(401).json({ error: 'User ID not found' });
+
+    const account = await Account.findById(userId);
+    if (!account) return res.status(404).json({ error: 'User not found' });
+
+    if (isCompanyUser(account.role)) {
+      return res.json({ success: true, jobPostsUsed: 0, message: 'Company user bypass - count not tracked' });
     }
 
-    const user = await User.findById(userId);
-    
-    if (!user) {
-      return res.status(404).json({ error: 'User not found' });
+    const sub = await Subscription.findOne({ accountId: userId });
+
+    if (!sub || sub.status !== 'active') {
+      return res.json({ success: false, message: 'No active subscription' });
     }
 
-    // Admin, Sales, and Marketing bypass subscription checks
-    if (isCompanyUser(user.role)) {
-      return res.json({
-        success: true,
-        jobPostsUsed: 0,
-        message: 'Company user bypass - count not tracked',
-      });
-    }
+    sub.jobPostsUsed = (sub.jobPostsUsed || 0) + 1;
+    await sub.save();
 
-    if (!user.subscription || user.subscription.status !== 'active') {
-      return res.json({
-        success: false,
-        message: 'No active subscription',
-      });
-    }
-
-    // Increment job post count
-    user.subscription.jobPostsUsed = (user.subscription.jobPostsUsed || 0) + 1;
-    await user.save();
-
-    res.json({
-      success: true,
-      jobPostsUsed: user.subscription.jobPostsUsed,
-      message: 'Job post count incremented',
-    });
+    res.json({ success: true, jobPostsUsed: sub.jobPostsUsed, message: 'Job post count incremented' });
   } catch (error: any) {
     res.status(500).json({ error: error.message || 'Failed to increment job post count' });
   }
@@ -1290,58 +1060,48 @@ export const incrementJobPostCount = async (req: AuthRequest, res: Response) => 
 export const checkListingVisibility = async (req: Request, res: Response) => {
   try {
     const { listingCreatedAt, userId } = req.body;
-    
+
     if (!listingCreatedAt || !userId) {
       return res.status(400).json({ error: 'Missing required fields' });
     }
 
-    const user = await User.findById(userId).populate('subscription.planId');
-    
-    if (!user) {
-      return res.status(404).json({ error: 'User not found' });
-    }
+    const sub = await Subscription.findOne({ accountId: userId }).populate('planId');
 
-    // Default delay for free plan (168 hours = 7 days)
-    let delayHours = 168;
+    let delayHours = 168; // Default 7 days for no subscription
 
-    // No subscription - use free plan delay
-    if (!user.subscription || !user.subscription.planId) {
+    if (!sub || !sub.planId) {
       const createdTime = new Date(listingCreatedAt).getTime();
       const availableTime = createdTime + (delayHours * 60 * 60 * 1000);
       const now = Date.now();
-      const visible = now >= availableTime;
-
       return res.json({
-        visible,
+        visible: now >= availableTime,
         delayHours,
         availableAt: new Date(availableTime).toISOString(),
         subscription: null,
       });
     }
 
-    // Inactive subscription - use highest delay
-    if (user.subscription.status !== 'active') {
+    if (sub.status !== 'active') {
       return res.json({
         visible: false,
         delayHours: 168,
         availableAt: new Date(Date.now() + 168 * 60 * 60 * 1000).toISOString(),
-        subscription: user.subscription,
+        subscription: sub,
       });
     }
 
-    const plan = user.subscription.planId as any;
+    const plan = sub.planId as any;
     delayHours = plan?.features?.dataDelayDays ? plan.features.dataDelayDays * 24 : 0;
 
     const createdTime = new Date(listingCreatedAt).getTime();
     const availableTime = createdTime + (delayHours * 60 * 60 * 1000);
     const now = Date.now();
-    const visible = now >= availableTime;
 
     res.json({
-      visible,
+      visible: now >= availableTime,
       delayHours,
       availableAt: new Date(availableTime).toISOString(),
-      subscription: user.subscription,
+      subscription: sub,
     });
   } catch (error: any) {
     res.status(500).json({ error: error.message || 'Failed to check listing visibility' });
@@ -1352,30 +1112,18 @@ export const checkListingVisibility = async (req: Request, res: Response) => {
 export const checkNotificationPermission = async (req: AuthRequest, res: Response) => {
   try {
     const userId = req.account?.id;
-    if (!userId) {
-      return res.status(401).json({ error: 'User ID not found' });
+    if (!userId) return res.status(401).json({ error: 'User ID not found' });
+
+    const sub = await Subscription.findOne({ accountId: userId }).populate('planId');
+
+    if (!sub || sub.status !== 'active') {
+      return res.json({ allowed: false, subscription: sub || null });
     }
 
-    const user = await User.findById(userId).populate('subscription.planId');
-    
-    if (!user) {
-      return res.status(404).json({ error: 'User not found' });
-    }
-
-    if (!user.subscription || user.subscription.status !== 'active') {
-      return res.json({
-        allowed: false,
-        subscription: user.subscription || null,
-      });
-    }
-
-    const plan = user.subscription.planId as any;
+    const plan = sub.planId as any;
     const notificationsEnabled = plan?.features?.instantVehicleAlerts || plan?.features?.instantJobAlerts || false;
 
-    res.json({
-      allowed: notificationsEnabled,
-      subscription: user.subscription,
-    });
+    res.json({ allowed: notificationsEnabled, subscription: sub });
   } catch (error: any) {
     res.status(500).json({ error: error.message || 'Failed to check notification permission' });
   }

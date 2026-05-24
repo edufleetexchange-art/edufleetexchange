@@ -24,7 +24,7 @@ import supplierRoutes from './routes/suppliers.js';
 import notificationRoutes from './routes/notifications.js';
 import uploadRoutes from './routes/upload.js';
 import subscriptionRoutes from './routes/subscriptions.js';
-import userRoutes from './routes/users.js';
+
 import adRoutes from './routes/ads.js';
 import marketingRoutes from './routes/marketing.js';
 import salesRoutes from './routes/sales.js';
@@ -82,7 +82,7 @@ app.use(`${apiPrefix}/upload`, uploadRoutes);
 app.use(`${apiPrefix}/subscriptions`, subscriptionRoutes);
 app.use(`${apiPrefix}/marketing`, marketingRoutes);
 app.use(`${apiPrefix}/sales`, salesRoutes);
-app.use(`${apiPrefix}/users`, userRoutes);
+
 app.use(`${apiPrefix}/ads`, adRoutes);
 app.use(`${apiPrefix}/access`, personaAccessRoutes);
 app.use(`${apiPrefix}/crm`, crmRoutes);
@@ -152,7 +152,7 @@ const server = app.listen(ENV.PORT, () => {
   console.log(`  ${apiPrefix}/subscriptions`);
   console.log(`  ${apiPrefix}/marketing`);
   console.log(`  ${apiPrefix}/sales`);
-  console.log(`  ${apiPrefix}/users`);
+
   console.log(`  ${apiPrefix}/ads`);
   console.log(`  ${apiPrefix}/access`);
   console.log(`  ${apiPrefix}/crm`);

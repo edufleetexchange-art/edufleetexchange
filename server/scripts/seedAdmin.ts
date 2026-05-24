@@ -1,5 +1,5 @@
 import mongoose from 'mongoose';
-import User from '../models/User.js';
+import Account from '../models/Account.js';
 import { connectDB } from '../config/database.js';
 
 const seedAdmin = async () => {
@@ -9,14 +9,14 @@ const seedAdmin = async () => {
     console.log('Connected to MongoDB');
 
     // Check if admin already exists
-    const existingAdmin = await User.findOne({ email: 'admin@edufleet.com' });
+    const existingAdmin = await Account.findOne({ email: 'admin@edufleet.com' });
     if (existingAdmin) {
       console.log('Admin user already exists');
       process.exit(0);
     }
 
-    // Create admin user
-    const admin = await User.create({
+    // Create admin account
+    const admin = await Account.create({
       name: 'Admin User',
       email: 'admin@edufleet.com',
       password: 'admin123',
@@ -25,11 +25,6 @@ const seedAdmin = async () => {
       isVerified: true,
       avatar: 'https://api.dicebear.com/7.x/avataaars/svg?seed=admin@edufleet.com',
       phone: '+1-800-ADMIN-00',
-      subscription: {
-        status: 'active',
-        listingsUsed: 0,
-        browseCount: 0,
-      }
     });
 
     console.log('Admin user created successfully:');

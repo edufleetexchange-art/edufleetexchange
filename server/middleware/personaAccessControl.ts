@@ -1,11 +1,11 @@
 /**
  * Persona-Based Access Control Middleware
- * 
+ *
  * Validates user access based on:
  * 1. User persona (Teacher, Institute, Vendor)
  * 2. Active subscription status
  * 3. Feature limits and permissions
- * 
+ *
  * Each persona has specific features they can access:
  * - Institute: vehicle listings, job posts
  * - Vendor: product/service listings (no job creation)
@@ -14,8 +14,8 @@
 
 import { Response, NextFunction } from 'express';
 import { AuthRequest } from './auth.js';
-import User from '../models/User.js';
-import SubscriptionPlan from '../models/SubscriptionPlan.js';
+import Account from '../models/Account.js';
+import Subscription from '../models/Subscription.js';
 
 export interface PersonaAccessResult {
   allowed: boolean;
@@ -26,6 +26,15 @@ export interface PersonaAccessResult {
   suggestedAction?: string;
 }
 
+/** Fetch account + active subscription for a userId */
+async function getAccountWithSub(userId: string) {
+  const account = await Account.findById(userId);
+  if (!account) return { account: null, sub: null };
+  const sub = await Subscription.findOne({ accountId: userId, status: 'active' })
+    .populate('planId');
+  return { account, sub };
+}
+
 /**
  * Check if user can create a vehicle listing (Institute only)
  */
@@ -33,17 +42,13 @@ export async function checkVehicleListingAccess(
   userId: string
 ): Promise<PersonaAccessResult> {
   try {
-    const user = await User.findById(userId).populate('subscription.planId');
-    
-    if (!user) {
-      return {
-        allowed: false,
-        reason: 'User not found',
-      };
+    const { account, sub } = await getAccountWithSub(userId);
+
+    if (!account) {
+      return { allowed: false, reason: 'User not found' };
     }
 
-    // Only institutes can create vehicle listings
-    if (user.role !== 'institute') {
+    if (account.role !== 'institute') {
       return {
         allowed: false,
         reason: 'Only institutes can create vehicle listings',
@@ -51,8 +56,7 @@ export async function checkVehicleListingAccess(
       };
     }
 
-    // Check if user has active subscription
-    if (!user.subscription || user.subscription.status !== 'active') {
+    if (!sub) {
       return {
         allowed: false,
         reason: 'No active subscription',
@@ -61,9 +65,9 @@ export async function checkVehicleListingAccess(
       };
     }
 
-    const plan = user.subscription.planId as any;
-    const maxListings = plan?.features?.maxVehicleListings || user.subscription.listingsLimit || 0;
-    const usedListings = user.subscription.listingsUsed || 0;
+    const plan = sub.planId as any;
+    const maxListings = plan?.features?.maxVehicleListings || sub.listingsLimit || 0;
+    const usedListings = sub.listingsUsed || 0;
     const remaining = Math.max(0, maxListings - usedListings);
 
     if (remaining <= 0) {
@@ -77,16 +81,10 @@ export async function checkVehicleListingAccess(
       };
     }
 
-    return {
-      allowed: true,
-      remaining,
-    };
+    return { allowed: true, remaining };
   } catch (error) {
     console.error('[PersonaAccessControl] Error checking vehicle listing access:', error);
-    return {
-      allowed: false,
-      reason: 'Error checking access permissions',
-    };
+    return { allowed: false, reason: 'Error checking access permissions' };
   }
 }
 
@@ -97,17 +95,13 @@ export async function checkJobPostAccess(
   userId: string
 ): Promise<PersonaAccessResult> {
   try {
-    const user = await User.findById(userId).populate('subscription.planId');
-    
-    if (!user) {
-      return {
-        allowed: false,
-        reason: 'User not found',
-      };
+    const { account, sub } = await getAccountWithSub(userId);
+
+    if (!account) {
+      return { allowed: false, reason: 'User not found' };
     }
 
-    // Only institutes can create job posts
-    if (user.role !== 'institute') {
+    if (account.role !== 'institute') {
       return {
         allowed: false,
         reason: 'Only institutes can create job posts',
@@ -115,8 +109,7 @@ export async function checkJobPostAccess(
       };
     }
 
-    // Check if user has active subscription
-    if (!user.subscription || user.subscription.status !== 'active') {
+    if (!sub) {
       return {
         allowed: false,
         reason: 'No active subscription',
@@ -125,9 +118,9 @@ export async function checkJobPostAccess(
       };
     }
 
-    const plan = user.subscription.planId as any;
-    const maxJobPosts = plan?.features?.maxJobPosts || user.subscription.jobPostsLimit || 0;
-    const usedJobPosts = user.subscription.jobPostsUsed || 0;
+    const plan = sub.planId as any;
+    const maxJobPosts = plan?.features?.maxJobPosts || sub.jobPostsLimit || 0;
+    const usedJobPosts = sub.jobPostsUsed || 0;
     const remaining = Math.max(0, maxJobPosts - usedJobPosts);
 
     if (remaining <= 0) {
@@ -141,16 +134,10 @@ export async function checkJobPostAccess(
       };
     }
 
-    return {
-      allowed: true,
-      remaining,
-    };
+    return { allowed: true, remaining };
   } catch (error) {
     console.error('[PersonaAccessControl] Error checking job post access:', error);
-    return {
-      allowed: false,
-      reason: 'Error checking access permissions',
-    };
+    return { allowed: false, reason: 'Error checking access permissions' };
   }
 }
 
@@ -161,17 +148,13 @@ export async function checkJobApplicationAccess(
   userId: string
 ): Promise<PersonaAccessResult> {
   try {
-    const user = await User.findById(userId).populate('subscription.planId');
-    
-    if (!user) {
-      return {
-        allowed: false,
-        reason: 'User not found',
-      };
+    const { account, sub } = await getAccountWithSub(userId);
+
+    if (!account) {
+      return { allowed: false, reason: 'User not found' };
     }
 
-    // Only teachers can apply to jobs
-    if (user.role !== 'teacher') {
+    if (account.role !== 'teacher') {
       return {
         allowed: false,
         reason: 'Only teachers can apply to jobs',
@@ -179,8 +162,7 @@ export async function checkJobApplicationAccess(
       };
     }
 
-    // Check if user has active subscription
-    if (!user.subscription || user.subscription.status !== 'active') {
+    if (!sub) {
       return {
         allowed: false,
         reason: 'No active subscription',
@@ -189,13 +171,10 @@ export async function checkJobApplicationAccess(
       };
     }
 
-    const plan = user.subscription.planId as any;
-    const maxApplications = plan?.features?.maxJobApplications || 5; // Default 5
-    
-    // Note: We would need to track application count in the user model
-    // For now, we'll assume they can apply if they have an active subscription
+    const plan = sub.planId as any;
+    const maxApplications = plan?.features?.maxJobApplications || 5;
     const canAccessJobBoard = plan?.features?.canAccessJobBoard !== false;
-    
+
     if (!canAccessJobBoard) {
       return {
         allowed: false,
@@ -205,16 +184,10 @@ export async function checkJobApplicationAccess(
       };
     }
 
-    return {
-      allowed: true,
-      remaining: maxApplications, // Would need to calculate actual remaining
-    };
+    return { allowed: true, remaining: maxApplications };
   } catch (error) {
     console.error('[PersonaAccessControl] Error checking job application access:', error);
-    return {
-      allowed: false,
-      reason: 'Error checking access permissions',
-    };
+    return { allowed: false, reason: 'Error checking access permissions' };
   }
 }
 
@@ -225,17 +198,13 @@ export async function checkProductListingAccess(
   userId: string
 ): Promise<PersonaAccessResult> {
   try {
-    const user = await User.findById(userId).populate('subscription.planId');
-    
-    if (!user) {
-      return {
-        allowed: false,
-        reason: 'User not found',
-      };
+    const { account, sub } = await getAccountWithSub(userId);
+
+    if (!account) {
+      return { allowed: false, reason: 'User not found' };
     }
 
-    // Only vendors can create product listings
-    if (user.role !== 'vendor') {
+    if (account.role !== 'vendor') {
       return {
         allowed: false,
         reason: 'Only vendors can create product listings',
@@ -243,8 +212,7 @@ export async function checkProductListingAccess(
       };
     }
 
-    // Check if user has active subscription
-    if (!user.subscription || user.subscription.status !== 'active') {
+    if (!sub) {
       return {
         allowed: false,
         reason: 'No active subscription',
@@ -253,9 +221,9 @@ export async function checkProductListingAccess(
       };
     }
 
-    const plan = user.subscription.planId as any;
-    const maxListings = plan?.features?.maxProductListings || user.subscription.listingsLimit || 0;
-    const usedListings = user.subscription.listingsUsed || 0;
+    const plan = sub.planId as any;
+    const maxListings = plan?.features?.maxProductListings || sub.listingsLimit || 0;
+    const usedListings = sub.listingsUsed || 0;
     const remaining = Math.max(0, maxListings - usedListings);
 
     if (remaining <= 0) {
@@ -269,16 +237,10 @@ export async function checkProductListingAccess(
       };
     }
 
-    return {
-      allowed: true,
-      remaining,
-    };
+    return { allowed: true, remaining };
   } catch (error) {
     console.error('[PersonaAccessControl] Error checking product listing access:', error);
-    return {
-      allowed: false,
-      reason: 'Error checking access permissions',
-    };
+    return { allowed: false, reason: 'Error checking access permissions' };
   }
 }
 
@@ -291,13 +253,9 @@ export async function requireVehicleListingAccess(
   next: NextFunction
 ) {
   const userId = req.account?.id;
-  
-  if (!userId) {
-    return res.status(401).json({ error: 'Authentication required' });
-  }
+  if (!userId) return res.status(401).json({ error: 'Authentication required' });
 
   const accessResult = await checkVehicleListingAccess(userId);
-  
   if (!accessResult.allowed) {
     return res.status(403).json({
       error: accessResult.reason,
@@ -306,8 +264,6 @@ export async function requireVehicleListingAccess(
       suggestedAction: accessResult.suggestedAction,
     });
   }
-
-  // Attach access info to request
   (req as any).accessInfo = accessResult;
   next();
 }
@@ -321,13 +277,9 @@ export async function requireJobPostAccess(
   next: NextFunction
 ) {
   const userId = req.account?.id;
-  
-  if (!userId) {
-    return res.status(401).json({ error: 'Authentication required' });
-  }
+  if (!userId) return res.status(401).json({ error: 'Authentication required' });
 
   const accessResult = await checkJobPostAccess(userId);
-  
   if (!accessResult.allowed) {
     return res.status(403).json({
       error: accessResult.reason,
@@ -336,8 +288,6 @@ export async function requireJobPostAccess(
       suggestedAction: accessResult.suggestedAction,
     });
   }
-
-  // Attach access info to request
   (req as any).accessInfo = accessResult;
   next();
 }
@@ -351,13 +301,9 @@ export async function requireJobApplicationAccess(
   next: NextFunction
 ) {
   const userId = req.account?.id;
-  
-  if (!userId) {
-    return res.status(401).json({ error: 'Authentication required' });
-  }
+  if (!userId) return res.status(401).json({ error: 'Authentication required' });
 
   const accessResult = await checkJobApplicationAccess(userId);
-  
   if (!accessResult.allowed) {
     return res.status(403).json({
       error: accessResult.reason,
@@ -366,8 +312,6 @@ export async function requireJobApplicationAccess(
       suggestedAction: accessResult.suggestedAction,
     });
   }
-
-  // Attach access info to request
   (req as any).accessInfo = accessResult;
   next();
 }
@@ -381,13 +325,9 @@ export async function requireProductListingAccess(
   next: NextFunction
 ) {
   const userId = req.account?.id;
-  
-  if (!userId) {
-    return res.status(401).json({ error: 'Authentication required' });
-  }
+  if (!userId) return res.status(401).json({ error: 'Authentication required' });
 
   const accessResult = await checkProductListingAccess(userId);
-  
   if (!accessResult.allowed) {
     return res.status(403).json({
       error: accessResult.reason,
@@ -396,8 +336,6 @@ export async function requireProductListingAccess(
       suggestedAction: accessResult.suggestedAction,
     });
   }
-
-  // Attach access info to request
   (req as any).accessInfo = accessResult;
   next();
 }
@@ -407,51 +345,43 @@ export async function requireProductListingAccess(
  */
 export async function getPersonaAccessControl(userId: string) {
   try {
-    const user = await User.findById(userId).populate('subscription.planId');
-    
-    if (!user) {
-      throw new Error('User not found');
-    }
+    const { account, sub } = await getAccountWithSub(userId);
 
-    const plan = user.subscription?.planId as any;
-    const persona = user.role as 'teacher' | 'institute' | 'vendor';
+    if (!account) throw new Error('User not found');
 
-    // Base response
+    const plan = sub?.planId as any;
+    const persona = account.role as 'teacher' | 'institute' | 'vendor';
+
     const accessControl: any = {
       persona,
-      subscription: user.subscription ? {
-        status: user.subscription.status,
+      subscription: sub ? {
+        status: sub.status,
         planName: plan?.displayName || 'Unknown',
-        endDate: user.subscription.endDate,
+        endDate: sub.endDate,
       } : null,
     };
 
-    // Add persona-specific access
     if (persona === 'institute') {
       const vehicleAccess = await checkVehicleListingAccess(userId);
       const jobPostAccess = await checkJobPostAccess(userId);
-      
       accessControl.canCreateVehicleListing = vehicleAccess.allowed;
       accessControl.canCreateJobPost = jobPostAccess.allowed;
       accessControl.remainingVehicleListings = vehicleAccess.remaining || 0;
       accessControl.remainingJobPosts = jobPostAccess.remaining || 0;
     } else if (persona === 'vendor') {
       const productAccess = await checkProductListingAccess(userId);
-      
       accessControl.canCreateProductListing = productAccess.allowed;
       accessControl.remainingProductListings = productAccess.remaining || 0;
     } else if (persona === 'teacher') {
       const jobAppAccess = await checkJobApplicationAccess(userId);
-      
       accessControl.canApplyToJob = jobAppAccess.allowed;
       accessControl.remainingJobApplications = jobAppAccess.remaining || 0;
       accessControl.profileVisibility = plan?.features?.profileVisibility || 'basic';
     }
 
-    // Common features
-    accessControl.canBrowse = user.subscription?.status === 'active';
-    accessControl.remainingBrowses = user.subscription
-      ? Math.max(0, (user.subscription.browseCountLimit || 0) - (user.subscription.browseCount || 0))
+    accessControl.canBrowse = sub?.status === 'active';
+    accessControl.remainingBrowses = sub
+      ? Math.max(0, (sub.browseCountLimit || 0) - (sub.browseCount || 0))
       : 0;
 
     return accessControl;

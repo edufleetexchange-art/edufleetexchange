@@ -1,8 +1,14 @@
 import AuditLog from '../models/AuditLog.js';
-import { IUser } from '../models/User.js';
+
+interface AuditUser {
+  _id: any;
+  employeeId?: string;
+  name: string;
+  role: string;
+}
 
 interface AuditParams {
-  user: IUser;
+  user: AuditUser;
   action: string;
   targetId?: string;
   targetType?: string;

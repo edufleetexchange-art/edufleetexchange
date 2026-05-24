@@ -1,20 +1,19 @@
 import { Response } from 'express';
 import Job from '../models/Job.js';
-import User from '../models/User.js';
+import Account from '../models/Account.js';
+import Subscription from '../models/Subscription.js';
 import Notification from '../models/Notification.js';
 import Application from '../models/Application.js';
 import { logAction } from '../utils/auditLogger.js';
 import { AuthRequest } from '../middleware/auth.js';
 import { ISubscriptionPlan } from '../models/SubscriptionPlan.js';
 
-// Helper to get data delay date
-const getDataDelayDate = (user: any): Date | null => {
-  if (!user || user.role === 'admin') return null;
+// Helper to get data delay date (uses req.account shape from middleware)
+const getDataDelayDate = (account: any): Date | null => {
+  if (!account || account.role === 'admin') return null;
 
-  const plan = user.subscription?.planId as unknown as ISubscriptionPlan;
-  const delayDays = plan?.features?.dataDelayDays ?? 10; // Default to 10 days if guest or no plan
-
-  if (delayDays === 0) return null;
+  // dataDelayDays is on the plan — for now default to 10 if no plan info on request
+  const delayDays = 10;
 
   const delayDate = new Date();
   delayDate.setDate(delayDate.getDate() - delayDays);
@@ -25,7 +24,7 @@ const getDataDelayDate = (user: any): Date | null => {
 export const createJob = async (req: AuthRequest, res: Response) => {
   try {
     const userId = req.account?.id;
-    const user = await User.findById(userId).populate('subscription.planId');
+    const user = await Account.findById(userId);
 
     if (!user) {
       return res.status(404).json({
@@ -37,9 +36,10 @@ export const createJob = async (req: AuthRequest, res: Response) => {
 
     // Check subscription limits for job posts
     if (user.role !== 'admin' && user.role !== 'sales') {
-      const plan = user.subscription?.planId as unknown as ISubscriptionPlan;
+      const sub = await Subscription.findOne({ accountId: userId, status: 'active' }).populate('planId');
+      const plan = sub?.planId as unknown as ISubscriptionPlan;
       const maxJobPosts = plan?.features?.maxJobPosts ?? 0;
-      const jobPostsUsed = user.subscription?.jobPostsUsed ?? 0;
+      const jobPostsUsed = sub?.jobPostsUsed ?? 0;
 
       if (maxJobPosts !== -1 && jobPostsUsed >= maxJobPosts) {
         return res.status(403).json({
@@ -51,15 +51,15 @@ export const createJob = async (req: AuthRequest, res: Response) => {
     }
 
     let instituteId = userId;
-    let instituteName = user.instituteName || user.name;
+    let instituteName = (user as any).instituteName || user.name;
     let contactEmail = user.email;
 
     // If sales or admin, allow providing instituteId (listing on behalf of school)
     if ((user.role === 'admin' || user.role === 'sales') && req.body.instituteId) {
-      const actualInstitute = await User.findById(req.body.instituteId);
+      const actualInstitute = await Account.findById(req.body.instituteId);
       if (actualInstitute) {
         instituteId = actualInstitute._id.toString();
-        instituteName = actualInstitute.instituteName || actualInstitute.name;
+        instituteName = (actualInstitute as any).instituteName || actualInstitute.name;
         contactEmail = actualInstitute.email;
       }
     }
@@ -85,10 +85,12 @@ export const createJob = async (req: AuthRequest, res: Response) => {
       });
     }
 
-    // Update jobPostsUsed counter
-    if (user.subscription && user.role !== 'sales') {
-      user.subscription.jobPostsUsed = (user.subscription.jobPostsUsed || 0) + 1;
-      await user.save();
+    // Update jobPostsUsed counter via Subscription model
+    if (user.role !== 'sales') {
+      await Subscription.findOneAndUpdate(
+        { accountId: userId, status: 'active' },
+        { $inc: { jobPostsUsed: 1 } }
+      );
     }
 
     res.status(201).json({
@@ -391,7 +393,7 @@ export const applyToJob = async (req: AuthRequest, res: Response) => {
     }
 
     // Get teacher details
-    const teacher = await User.findById(userId);
+    const teacher = await Account.findById(userId);
     if (!teacher) {
       return res.status(404).json({
         success: false,
@@ -641,7 +643,7 @@ export const updateApplicationStatus = async (req: AuthRequest, res: Response) =
 
     // Create notification for teacher
     if (status) {
-      const teacher = await User.findById(application.teacherId);
+      const teacher = await Account.findById(application.teacherId);
       if (teacher) {
         let message = '';
         switch (status) {

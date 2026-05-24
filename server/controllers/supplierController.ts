@@ -1,7 +1,8 @@
 import { Request, Response } from 'express';
 import Supplier from '../models/Supplier.js';
 import Notification from '../models/Notification.js';
-import User from '../models/User.js';
+import Account from '../models/Account.js';
+import Subscription from '../models/Subscription.js';
 import SubscriptionPlan from '../models/SubscriptionPlan.js';
 import { AuthRequest } from '../middleware/auth.js';
 
@@ -99,26 +100,20 @@ export const getAllSuppliers = async (req: AuthRequest, res: Response) => {
       .sort(sort as string)
       .skip(skip)
       .limit(limitNum)
-      .populate({
-        path: 'createdBy',
-        select: 'name email subscription role',
-        populate: {
-          path: 'subscription.planId',
-          select: 'name features'
-        }
-      })
+      .populate({ path: 'createdBy', select: 'name email role' })
       .lean();
 
     const total = await Supplier.countDocuments(query);
 
-    // Map to include isPaid flag
+    // Map to include isPaid flag (check active subscription)
+    const creatorIds = suppliers.map((s: any) => s.createdBy?._id || s.createdBy).filter(Boolean);
+    const activeSubs = await Subscription.find({ accountId: { $in: creatorIds }, status: 'active' }).select('accountId');
+    const activeSubIds = new Set(activeSubs.map(s => s.accountId.toString()));
+
     const mappedSuppliers = suppliers.map((s: any) => {
-      const creator = s.createdBy;
-      const isPaid = creator?.subscription?.status === 'active';
-      return {
-        ...s,
-        isPaid
-      };
+      const creatorId = (s.createdBy?._id || s.createdBy)?.toString();
+      const isPaid = creatorId ? activeSubIds.has(creatorId) : false;
+      return { ...s, isPaid };
     });
 
     res.status(200).json({
@@ -146,11 +141,7 @@ export const getSupplierById = async (req: AuthRequest, res: Response) => {
   try {
     const supplier = await Supplier.findById(req.params.id).populate({
       path: 'createdBy',
-      select: 'name email phone subscription role',
-      populate: {
-        path: 'subscription.planId',
-        select: 'name features'
-      }
+      select: 'name email phone role',
     });
 
     if (!supplier) {
@@ -163,7 +154,11 @@ export const getSupplierById = async (req: AuthRequest, res: Response) => {
 
     // Check if supplier is paid (has active subscription)
     const creator = supplier.createdBy as any;
-    const isPaid = creator?.subscription?.status === 'active';
+    const creatorId = creator?._id || creator;
+    const activeSub = creatorId
+      ? await Subscription.findOne({ accountId: creatorId, status: 'active' })
+      : null;
+    const isPaid = !!activeSub;
 
     // If not admin and not owner, check if vendor is paid to show details
     if (!isPaid && (!req.account || (req.account.role !== 'admin' && req.account.id !== creator?._id?.toString()))) {
@@ -365,30 +360,35 @@ export const approveSupplierStatus = async (req: AuthRequest, res: Response) => 
 
     // If approved and planId provided, update user subscription
     if (status === 'approved' && planId) {
-      const user = await User.findById(supplier.createdBy);
       const plan = await SubscriptionPlan.findById(planId);
 
-      if (user && plan) {
+      if (plan) {
         const startDate = new Date();
         const endDate = new Date();
         endDate.setDate(endDate.getDate() + plan.duration);
 
-        user.subscription = {
-          planId: plan._id,
-          status: 'active',
-          paymentStatus: 'completed',
-          startDate,
-          endDate,
-          listingsUsed: user.subscription?.listingsUsed || 0,
-          listingsLimit: plan.features.maxVehicleListings || 0,
-          jobPostsUsed: user.subscription?.jobPostsUsed || 0,
-          jobPostsLimit: plan.features.maxJobPosts || 0,
-          browseCount: user.subscription?.browseCount || 0,
-          browseCountLimit: plan.features.maxBrowsesPerMonth || 0,
-          lastBrowseReset: user.subscription?.lastBrowseReset || startDate,
-          notes: notes || `Plan upgraded during supplier approval to ${plan.displayName}`,
-        };
-        await user.save();
+        const existingSub = await Subscription.findOne({ accountId: supplier.createdBy });
+
+        await Subscription.findOneAndUpdate(
+          { accountId: supplier.createdBy },
+          {
+            accountId: supplier.createdBy,
+            planId: plan._id,
+            status: 'active',
+            paymentStatus: 'completed',
+            startDate,
+            endDate,
+            listingsUsed: existingSub?.listingsUsed || 0,
+            listingsLimit: plan.features.maxVehicleListings || 0,
+            jobPostsUsed: existingSub?.jobPostsUsed || 0,
+            jobPostsLimit: plan.features.maxJobPosts || 0,
+            browseCount: existingSub?.browseCount || 0,
+            browseCountLimit: plan.features.maxBrowsesPerMonth || 0,
+            lastBrowseReset: existingSub?.lastBrowseReset || startDate,
+            notes: notes || `Plan upgraded during supplier approval to ${plan.displayName}`,
+          },
+          { upsert: true, new: true }
+        );
       }
     }
 

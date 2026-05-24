@@ -1,6 +1,4 @@
 import { Response } from 'express';
-import Vehicle from '../models/Vehicle.js';
-import User from '../models/User.js';
 import Lead from '../models/Lead.js';
 import AuditLog from '../models/AuditLog.js';
 import { AuthRequest } from '../middleware/auth.js';

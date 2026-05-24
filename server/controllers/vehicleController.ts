@@ -1,7 +1,8 @@
 import { Response } from 'express';
 import Vehicle from '../models/Vehicle.js';
 import Notification from '../models/Notification.js';
-import User from '../models/User.js';
+import Account from '../models/Account.js';
+import Subscription from '../models/Subscription.js';
 import { logAction } from '../utils/auditLogger.js';
 import { AuthRequest } from '../middleware/auth.js';
 import { ISubscriptionPlan } from '../models/SubscriptionPlan.js';
@@ -247,10 +248,10 @@ export const createVehicle = async (req: AuthRequest, res: Response): Promise<vo
 
     // If sales or admin, allow providing seller details (listing on behalf of school)
     if ((req.account.role === 'admin' || req.account.role === 'sales') && req.body.sellerId) {
-      actualSeller = await User.findById(req.body.sellerId);
+      actualSeller = await Account.findById(req.body.sellerId);
       if (actualSeller) {
         sellerId = actualSeller._id;
-        sellerName = actualSeller.instituteName || actualSeller.name;
+        sellerName = (actualSeller as any).instituteName || actualSeller.name;
         sellerEmail = actualSeller.email;
         sellerPhone = actualSeller.phone;
       }
@@ -280,15 +281,17 @@ export const createVehicle = async (req: AuthRequest, res: Response): Promise<vo
     }
 
     // Update listingsUsed counter for the actual seller (Institute)
-    if (actualSeller && actualSeller.subscription) {
-      actualSeller.subscription.listingsUsed = (actualSeller.subscription.listingsUsed || 0) + 1;
-      await actualSeller.save();
+    if (actualSeller) {
+      await Subscription.findOneAndUpdate(
+        { accountId: actualSeller._id, status: 'active' },
+        { $inc: { listingsUsed: 1 } }
+      );
     } else if (req.subscription && req.account.role !== 'sales') {
-      // Normal flow (Institute creating for themselves) — subscription tracking is on User model
-      // Update via the User document directly
-      await User.findByIdAndUpdate(req.account.id, {
-        $inc: { 'subscription.listingsUsed': 1 }
-      });
+      // Normal flow (Institute creating for themselves) — update their Subscription document
+      await Subscription.findOneAndUpdate(
+        { accountId: req.account.id, status: 'active' },
+        { $inc: { listingsUsed: 1 } }
+      );
     }
 
     res.status(201).json({

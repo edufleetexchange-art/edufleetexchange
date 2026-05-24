@@ -1,5 +1,6 @@
 import { Response } from 'express';
-import User from '../models/User.js';
+import Account from '../models/Account.js';
+import Subscription from '../models/Subscription.js';
 import SubscriptionRequest from '../models/SubscriptionRequest.js';
 import SubscriptionPlan from '../models/SubscriptionPlan.js';
 import Vehicle from '../models/Vehicle.js';
@@ -158,35 +159,35 @@ export const updateRequestStatus = async (req: AuthRequest, res: Response): Prom
 
     // If approved, update user subscription
     if (status === 'approved') {
-      const user = await User.findById(request.userId);
-      if (user) {
-        // Update user subscription logic (reused from adminController if available)
-        // For now, simple update
-        const planId = request.requestedPlanId;
-        const plan = await SubscriptionPlan.findById(planId);
-        
-        if (plan) {
-          const startDate = new Date();
-          const endDate = new Date();
-          endDate.setDate(startDate.getDate() + (plan.duration || 30));
+      const planId = request.requestedPlanId;
+      const plan = await SubscriptionPlan.findById(planId);
 
-          user.subscription = {
-            planId: plan._id,
-            status: 'active',
-            paymentStatus: 'completed',
-            startDate,
-            endDate,
-            listingsUsed: 0,
-            listingsLimit: plan.features.maxVehicleListings || 0,
-            jobPostsUsed: 0,
-            jobPostsLimit: plan.features.maxJobPosts || 0,
-            browseCount: 0,
-            browseCountLimit: plan.features.maxBrowsesPerMonth,
-            lastBrowseReset: startDate,
-            notes: `Approved by Sales: ${req.account!.name} (${req.account!.employeeId})`
-          };
-          await user.save();
-        }
+      if (plan) {
+        const startDate = new Date();
+        const endDate = new Date();
+        endDate.setDate(startDate.getDate() + (plan.duration || 30));
+
+        const subData = {
+          planId: plan._id,
+          status: 'active' as const,
+          paymentStatus: 'completed' as const,
+          startDate,
+          endDate,
+          listingsUsed: 0,
+          listingsLimit: plan.features.maxVehicleListings || 0,
+          jobPostsUsed: 0,
+          jobPostsLimit: plan.features.maxJobPosts || 0,
+          browseCount: 0,
+          browseCountLimit: plan.features.maxBrowsesPerMonth,
+          lastBrowseReset: startDate,
+          notes: `Approved by Sales: ${req.account!.name}`,
+        };
+
+        await Subscription.findOneAndUpdate(
+          { accountId: request.userId },
+          subData,
+          { upsert: true, new: true }
+        );
       }
     }
 
@@ -309,21 +310,19 @@ export const createSalesUser = async (req: AuthRequest, res: Response): Promise<
     const { name, email, password, role, instituteName, contactPerson, phone, planId } = req.body;
 
     // Check if user exists
-    const existingUser = await User.findOne({ email });
+    const existingUser = await Account.findOne({ email });
     if (existingUser) {
       res.status(400).json({ success: false, error: 'User already exists' });
       return;
     }
 
-    const user = new User({
+    const user = await Account.create({
       name,
       email,
-      password, // Should be hashed, User model pre-save hook should handle it
+      password,
       role: role || 'institute',
-      instituteName,
-      contactPerson,
       phone,
-      isVerified: true
+      isVerified: true,
     });
 
     if (planId) {
@@ -333,7 +332,8 @@ export const createSalesUser = async (req: AuthRequest, res: Response): Promise<
         const endDate = new Date();
         endDate.setDate(startDate.getDate() + (plan.duration || 30));
 
-        user.subscription = {
+        await Subscription.create({
+          accountId: user._id,
           planId: plan._id,
           status: 'active',
           paymentStatus: 'completed',
@@ -346,12 +346,10 @@ export const createSalesUser = async (req: AuthRequest, res: Response): Promise<
           browseCount: 0,
           browseCountLimit: plan.features.maxBrowsesPerMonth,
           lastBrowseReset: startDate,
-          notes: `Created by Sales: ${req.account!.name}`
-        };
+          notes: `Created by Sales: ${req.account!.name}`,
+        });
       }
     }
-
-    await user.save();
 
     await logAction({
       user: req.account as any,
@@ -382,7 +380,7 @@ export const createSalesListing = async (req: AuthRequest, res: Response): Promi
     }
 
     const { sellerId, type, ...data } = req.body;
-    const seller = await User.findById(sellerId);
+    const seller = await Account.findById(sellerId);
     if (!seller) {
       res.status(404).json({ success: false, error: 'Institute not found' });
       return;
@@ -393,7 +391,7 @@ export const createSalesListing = async (req: AuthRequest, res: Response): Promi
       listing = await Vehicle.create({
         ...data,
         sellerId: seller._id,
-        sellerName: seller.instituteName || seller.name,
+        sellerName: (seller as any).instituteName || seller.name,
         sellerEmail: seller.email,
         sellerPhone: seller.phone,
         status: 'approved' // Sales created listings are pre-approved
@@ -445,15 +443,15 @@ export const createSalesVendor = async (req: AuthRequest, res: Response): Promis
     } = req.body;
 
     // First create or find vendor user
-    let user = await User.findOne({ email });
+    let user = await Account.findOne({ email });
     if (!user) {
-      user = await User.create({
+      user = await Account.create({
         name: contactPerson || name,
         email,
         password: 'ChangeMe123!',
         role: 'vendor',
         phone,
-        isVerified: true
+        isVerified: true,
       });
     }
 
@@ -478,7 +476,7 @@ export const createSalesVendor = async (req: AuthRequest, res: Response): Promis
       yearsInBusiness,
       clientCount,
       createdBy: user._id,
-      status: 'approved'
+      status: 'approved',
     });
 
     // Assign subscription if provided
@@ -489,22 +487,25 @@ export const createSalesVendor = async (req: AuthRequest, res: Response): Promis
         const endDate = new Date();
         endDate.setDate(startDate.getDate() + (plan.duration || 30));
 
-        user.subscription = {
-          planId: plan._id,
-          status: 'active',
-          paymentStatus: 'completed',
-          startDate,
-          endDate,
-          listingsUsed: 0,
-          listingsLimit: plan.features.maxVehicleListings || 0,
-          jobPostsUsed: 0,
-          jobPostsLimit: plan.features.maxJobPosts || 0,
-          browseCount: 0,
-          browseCountLimit: plan.features.maxBrowsesPerMonth,
-          lastBrowseReset: startDate,
-          notes: `Vendor Setup by Sales: ${req.account!.name}`
-        };
-        await user.save();
+        await Subscription.findOneAndUpdate(
+          { accountId: user._id },
+          {
+            planId: plan._id,
+            status: 'active',
+            paymentStatus: 'completed',
+            startDate,
+            endDate,
+            listingsUsed: 0,
+            listingsLimit: plan.features.maxVehicleListings || 0,
+            jobPostsUsed: 0,
+            jobPostsLimit: plan.features.maxJobPosts || 0,
+            browseCount: 0,
+            browseCountLimit: plan.features.maxBrowsesPerMonth,
+            lastBrowseReset: startDate,
+            notes: `Vendor Setup by Sales: ${req.account!.name}`,
+          },
+          { upsert: true, new: true }
+        );
       }
     }
 
