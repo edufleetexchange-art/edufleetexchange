@@ -42,7 +42,7 @@ function defaultSubscriptionFromPlan(accountId: mongoose.Types.ObjectId, plan: a
 }
 
 function avatarFor(email: string) {
-  return `https://api.dicebear.com/7.x/avataaars/svg?seed=${email}`;
+  return `https://api.dicebear.com/7.x/avataaars/svg?seed=${encodeURIComponent(email)}`;
 }
 
 export interface InstituteSignupInput {
@@ -265,8 +265,8 @@ export async function loadBundle(accountId: string): Promise<Bundle> {
 export async function login(email: string, password: string): Promise<Bundle> {
   const account = await Account.findOne({ email: email.toLowerCase() }).select('+password');
   if (!account) throw new Error('Invalid credentials');
+  if (!account.isActive) throw new Error('Account is inactive');
   const ok = await (account as any).comparePassword(password);
   if (!ok) throw new Error('Invalid credentials');
-  if (!account.isActive) throw new Error('Account is inactive');
   return loadBundle(String(account._id));
 }

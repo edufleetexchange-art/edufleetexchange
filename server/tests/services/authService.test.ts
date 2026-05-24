@@ -40,7 +40,7 @@ describe('authService.signupInstitute', () => {
     expect(await Subscription.countDocuments({})).toBe(1);
   });
 
-  it('rolls back all 3 documents on duplicate email', async () => {
+  it('rejects duplicate email and leaves the original account intact', async () => {
     await seedPlan('institute');
     await authService.signupInstitute({
       name: 'A', email: 'dup@e.com', password: 'pwpwpw',
