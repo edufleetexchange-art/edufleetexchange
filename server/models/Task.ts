@@ -16,8 +16,8 @@ export interface ITask extends Document {
 
 const TaskSchema: Schema = new Schema({
   leadId: { type: Schema.Types.ObjectId, ref: 'Lead' },
-  assignedTo: { type: Schema.Types.ObjectId, ref: 'User', required: true },
-  createdBy: { type: Schema.Types.ObjectId, ref: 'User', required: true },
+  assignedTo: { type: Schema.Types.ObjectId, ref: 'Account', required: true },
+  createdBy: { type: Schema.Types.ObjectId, ref: 'Account', required: true },
   title: { type: String, required: true },
   description: { type: String, default: '' },
   dueDate: { type: Date, required: true },

@@ -134,7 +134,7 @@ const jobSchema = new Schema<IJob>(
     },
     instituteId: {
       type: Schema.Types.ObjectId,
-      ref: 'User',
+      ref: 'Account',
       required: true,
     },
     applicationDeadline: {
