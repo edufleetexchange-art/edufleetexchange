@@ -36,4 +36,4 @@ const schema = new Schema<IInstituteProfile>(
   }
 );
 
-export default mongoose.model<IInstituteProfile>('InstituteProfile', schema);
+export default (mongoose.models.InstituteProfile as mongoose.Model<IInstituteProfile>) ?? mongoose.model<IInstituteProfile>('InstituteProfile', schema);

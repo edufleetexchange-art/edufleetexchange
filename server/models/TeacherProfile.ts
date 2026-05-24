@@ -38,4 +38,4 @@ schema.index({ subjects: 1 });
 schema.index({ location: 1 });
 schema.index({ experience: 1 });
 
-export default mongoose.model<ITeacherProfile>('TeacherProfile', schema);
+export default (mongoose.models.TeacherProfile as mongoose.Model<ITeacherProfile>) ?? mongoose.model<ITeacherProfile>('TeacherProfile', schema);

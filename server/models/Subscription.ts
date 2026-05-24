@@ -53,4 +53,4 @@ schema.index(
   { unique: true, partialFilterExpression: { status: 'active' } }
 );
 
-export default mongoose.model<ISubscription>('Subscription', schema);
+export default (mongoose.models.Subscription as mongoose.Model<ISubscription>) ?? mongoose.model<ISubscription>('Subscription', schema);

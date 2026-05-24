@@ -31,4 +31,4 @@ const schema = new Schema<IStaffProfile>(
   }
 );
 
-export default mongoose.model<IStaffProfile>('StaffProfile', schema);
+export default (mongoose.models.StaffProfile as mongoose.Model<IStaffProfile>) ?? mongoose.model<IStaffProfile>('StaffProfile', schema);

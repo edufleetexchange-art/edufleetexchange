@@ -38,4 +38,4 @@ const schema = new Schema<IVendorProfile>(
   }
 );
 
-export default mongoose.model<IVendorProfile>('VendorProfile', schema);
+export default (mongoose.models.VendorProfile as mongoose.Model<IVendorProfile>) ?? mongoose.model<IVendorProfile>('VendorProfile', schema);

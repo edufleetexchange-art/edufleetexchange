@@ -69,4 +69,4 @@ accountSchema.methods.comparePassword = async function (candidate: string): Prom
   return bcrypt.compare(candidate, this.password);
 };
 
-export default mongoose.model<IAccount>('Account', accountSchema);
+export default (mongoose.models.Account as mongoose.Model<IAccount>) ?? mongoose.model<IAccount>('Account', accountSchema);
