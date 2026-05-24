@@ -1,437 +1,96 @@
-import { Response } from "express";
-import jwt from "jsonwebtoken";
-import User from "../models/User.js";
-import SubscriptionPlan from "../models/SubscriptionPlan.js";
-import { JWT_CONFIG } from "../config/jwt.js";
-import { AuthRequest } from "../middleware/auth.js";
+import { Request, Response } from 'express';
+import jwt from 'jsonwebtoken';
+import { JWT_CONFIG } from '../config/jwt.js';
+import * as authService from '../services/authService.js';
+import { AuthRequest } from '../middleware/auth.js';
 
-// ---- Types (TypeScript fixes only; logic unchanged) ----
-type PaymentStatus = "pending" | "completed" | "failed";
-type SubscriptionStatus = "active" | "inactive" | "suspended" | "expired";
-
-interface SubscriptionPayload {
-  planId: any;
-  status: SubscriptionStatus;
-  paymentStatus: PaymentStatus;
-  startDate: Date;
-  endDate: Date;
-  listingsUsed: number;
-  listingsLimit?: number;
-  jobPostsUsed: number;
-  jobPostsLimit?: number;
-  browseCount: number;
-  browseCountLimit?: number;
-  lastBrowseReset: Date;
-  notes: string;
+function setAuthCookie(res: Response, accountId: string, role: string) {
+  const token = jwt.sign({ accountId, role }, JWT_CONFIG.secret, { expiresIn: JWT_CONFIG.expiresIn as any });
+  res.cookie('token', token, JWT_CONFIG.cookieOptions);
+  return token;
 }
 
-// Generate JWT token
-const generateToken = (userId: string): string => {
-  return jwt.sign({ userId }, JWT_CONFIG.secret, {
-    expiresIn: JWT_CONFIG.expiresIn as any,
-  });
+function handleErr(res: Response, err: any, fallback = 500) {
+  const msg = err instanceof Error ? err.message : 'Request failed';
+  // Mongoose duplicate-key errors include code 11000
+  const isDuplicate = (err && (err.code === 11000 || /duplicate|already exists/i.test(msg)));
+  const status =
+    isDuplicate ? 409 :
+    /Invalid credentials|inactive/i.test(msg) ? 401 :
+    fallback;
+  res.status(status).json({ success: false, error: msg, code: 'AUTH_ERROR' });
+}
+
+export const signupInstitute = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const bundle = await authService.signupInstitute(req.body);
+    setAuthCookie(res, bundle.account.id, bundle.account.role);
+    res.status(201).json({ success: true, data: bundle, message: 'Institute registered', timestamp: new Date().toISOString() });
+  } catch (e) { handleErr(res, e); }
 };
 
-// @desc    Register new user
-// @route   POST /api/auth/signup
-// @access  Public
-export const signup = async (req: AuthRequest, res: Response): Promise<void> => {
+export const signupTeacher = async (req: Request, res: Response): Promise<void> => {
   try {
-    const {
-      name,
-      email,
-      password,
-      role,
-      instituteName,
-      contactPerson,
-      phone,
-      experience,
-      qualifications,
-      subjects,
-      bio,
-      location,
-      planId,
-    } = req.body;
-
-    // Check if user exists
-    const existingUser = await User.findOne({ email });
-    if (existingUser) {
-      res.status(400).json({
-        success: false,
-        error: "User with this email already exists",
-        code: "USER_EXISTS",
-      });
-      return;
-    }
-
-    // Determine plan type based on role
-    let subscription: SubscriptionPayload | undefined = undefined;
-    const internalRoles = ["admin", "marketing", "sales"];
-
-    if (!internalRoles.includes(role)) {
-      let planType = "institute";
-      if (role === "teacher") {
-        planType = "teacher";
-      } else if (role === "supplier" || role === "vendor") {
-        planType = "vendor";
-      }
-
-      // Find requested plan or default free plan
-      let selectedPlan: any | null = null;
-
-      if (planId) {
-        selectedPlan = await SubscriptionPlan.findById(planId);
-      }
-
-      if (!selectedPlan) {
-        selectedPlan = await SubscriptionPlan.findOne({
-          planType,
-          price: 0,
-          isActive: true,
-        });
-      }
-
-      if (selectedPlan) {
-        const startDate = new Date();
-        const endDate = new Date();
-        endDate.setDate(endDate.getDate() + selectedPlan.duration);
-
-        // ✅ Fix typing so TS doesn't infer "string"
-        const paymentStatus: PaymentStatus =
-          selectedPlan.price === 0 ? "completed" : "pending";
-
-        subscription = {
-          planId: selectedPlan._id,
-          status: "active",
-          paymentStatus,
-          startDate,
-          endDate,
-          listingsUsed: 0,
-          listingsLimit: selectedPlan.features?.maxListings,
-          jobPostsUsed: 0,
-          jobPostsLimit: selectedPlan.features?.maxJobPosts,
-          browseCount: 0,
-          browseCountLimit: selectedPlan.features?.maxBrowsesPerMonth,
-          lastBrowseReset: startDate,
-          notes: planId
-            ? `Assigned ${selectedPlan.displayName} plan on signup`
-            : "Free plan assigned on signup",
-        };
-      }
-    }
-
-    // Create user
-    const user: any = await User.create({
-      name,
-      email,
-      password,
-      role: role || "institute",
-      instituteName,
-      contactPerson,
-      phone,
-      experience,
-      qualifications,
-      subjects,
-      bio,
-      location,
-      avatar: `https://api.dicebear.com/7.x/avataaars/svg?seed=${email}`,
-      subscription,
-    });
-
-    // Generate token
-    const token = generateToken(user._id.toString());
-
-    // Set cookie
-    res.cookie("token", token, JWT_CONFIG.cookieOptions);
-
-    // Return user data
-    const userData = {
-      id: user._id,
-      name: user.name,
-      email: user.email,
-      role: user.role,
-      instituteName: user.instituteName,
-      contactPerson: user.contactPerson,
-      avatar: user.avatar,
-      phone: user.phone,
-      location: user.location,
-      experience: user.experience,
-      qualifications: user.qualifications,
-      subjects: user.subjects,
-      bio: user.bio,
-      isAvailable: user.isAvailable,
-    };
-
-    res.status(201).json({
-      success: true,
-      data: {
-        user: userData,
-        token,
-      },
-      message: "User registered successfully",
-      timestamp: new Date().toISOString(),
-    });
-  } catch (error) {
-    console.error("Signup error:", error);
-    res.status(500).json({
-      success: false,
-      error: error instanceof Error ? error.message : "Registration failed",
-      code: "SIGNUP_ERROR",
-    });
-  }
+    const bundle = await authService.signupTeacher(req.body);
+    setAuthCookie(res, bundle.account.id, bundle.account.role);
+    res.status(201).json({ success: true, data: bundle, message: 'Teacher registered', timestamp: new Date().toISOString() });
+  } catch (e) { handleErr(res, e); }
 };
 
-// @desc    Login user
-// @route   POST /api/auth/login
-// @access  Public
-export const login = async (req: AuthRequest, res: Response): Promise<void> => {
+export const signupVendor = async (req: Request, res: Response): Promise<void> => {
   try {
-    const { email, password } = req.body;
+    const bundle = await authService.signupVendor(req.body);
+    setAuthCookie(res, bundle.account.id, bundle.account.role);
+    res.status(201).json({ success: true, data: bundle, message: 'Vendor registered', timestamp: new Date().toISOString() });
+  } catch (e) { handleErr(res, e); }
+};
 
-    // Validate input
+export const login = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { email, password } = req.body || {};
     if (!email || !password) {
-      res.status(400).json({
-        success: false,
-        error: "Email and password are required",
-        code: "MISSING_FIELDS",
-      });
+      res.status(400).json({ success: false, error: 'Email and password required', code: 'MISSING_FIELDS' });
       return;
     }
-
-    // Find user and include password
-    const user: any = await User.findOne({ email }).select("+password");
-    if (!user) {
-      res.status(401).json({
-        success: false,
-        error: "Invalid email or password",
-        code: "INVALID_CREDENTIALS",
-      });
-      return;
-    }
-
-    // Check password
-    const isPasswordValid = await user.comparePassword(password);
-    if (!isPasswordValid) {
-      res.status(401).json({
-        success: false,
-        error: "Invalid email or password",
-        code: "INVALID_CREDENTIALS",
-      });
-      return;
-    }
-
-    // Check if account is active
-    if (!user.isActive) {
-      res.status(403).json({
-        success: false,
-        error: "Account is deactivated",
-        code: "ACCOUNT_DEACTIVATED",
-      });
-      return;
-    }
-
-    // Generate token
-    const token = generateToken(user._id.toString());
-
-    // Set cookie
-    res.cookie("token", token, JWT_CONFIG.cookieOptions);
-
-    // Return user data
-    const userData = {
-      id: user._id,
-      name: user.name,
-      email: user.email,
-      role: user.role,
-      instituteName: user.instituteName,
-      contactPerson: user.contactPerson,
-      avatar: user.avatar,
-      phone: user.phone,
-      location: user.location,
-      experience: user.experience,
-      qualifications: user.qualifications,
-      subjects: user.subjects,
-      bio: user.bio,
-      isAvailable: user.isAvailable,
-    };
-
-    res.status(200).json({
-      success: true,
-      data: {
-        user: userData,
-        token,
-      },
-      message: "Login successful",
-      timestamp: new Date().toISOString(),
-    });
-  } catch (error) {
-    console.error("Login error:", error);
-    res.status(500).json({
-      success: false,
-      error: "Login failed",
-      code: "LOGIN_ERROR",
-    });
-  }
+    const bundle = await authService.login(email, password);
+    setAuthCookie(res, bundle.account.id, bundle.account.role);
+    res.status(200).json({ success: true, data: bundle, message: 'Login successful', timestamp: new Date().toISOString() });
+  } catch (e) { handleErr(res, e); }
 };
 
-// @desc    Logout user
-// @route   POST /api/auth/logout
-// @access  Private
-export const logout = async (req: AuthRequest, res: Response): Promise<void> => {
-  try {
-    // Clear cookie
-    res.clearCookie("token");
-
-    res.status(200).json({
-      success: true,
-      data: { loggedOut: true },
-      message: "Logout successful",
-      timestamp: new Date().toISOString(),
-    });
-  } catch (error) {
-    console.error("Logout error:", error);
-    res.status(500).json({
-      success: false,
-      error: "Logout failed",
-      code: "LOGOUT_ERROR",
-    });
-  }
+export const logout = async (_req: Request, res: Response): Promise<void> => {
+  res.clearCookie('token');
+  res.status(200).json({ success: true, data: { loggedOut: true }, message: 'Logged out', timestamp: new Date().toISOString() });
 };
 
-// @desc    Get current user
-// @route   GET /api/auth/me
-// @access  Private
-export const getCurrentUser = async (
-  req: AuthRequest,
-  res: Response
-): Promise<void> => {
-  try {
-    if (!req.user) {
-      res.status(401).json({
-        success: false,
-        error: "Not authenticated",
-        code: "NOT_AUTHENTICATED",
-      });
-      return;
-    }
-
-    // Ensure plan is populated even if middleware didn't
-    const user: any = await User.findById(req.user._id)
-      .select("-password")
-      .populate("subscription.planId");
-
-    if (!user) {
-      res.status(404).json({
-        success: false,
-        error: "User not found",
-        code: "NOT_FOUND",
-      });
-      return;
-    }
-
-    const userData = {
-      id: user._id,
-      name: user.name,
-      email: user.email,
-      role: user.role,
-      instituteName: user.instituteName,
-      contactPerson: user.contactPerson,
-      avatar: user.avatar,
-      phone: user.phone,
-      location: user.location,
-      experience: user.experience,
-      qualifications: user.qualifications,
-      subjects: user.subjects,
-      bio: user.bio,
-      isAvailable: user.isAvailable,
-      subscription: user.subscription,
-    };
-
-    res.status(200).json({
-      success: true,
-      data: userData,
-      timestamp: new Date().toISOString(),
-    });
-  } catch (error) {
-    console.error("Get current user error:", error);
-    res.status(500).json({
-      success: false,
-      error: "Failed to fetch user data",
-      code: "FETCH_USER_ERROR",
-    });
+export const me = async (req: AuthRequest, res: Response): Promise<void> => {
+  if (!req.account) {
+    res.status(401).json({ success: false, error: 'Not authenticated', code: 'NOT_AUTHENTICATED' });
+    return;
   }
+  const bundle = await authService.loadBundle(String(req.account.id));
+  res.status(200).json({ success: true, data: bundle, timestamp: new Date().toISOString() });
 };
 
-// @desc    Validate token
-// @route   GET /api/auth/validate
-// @access  Public
-export const validateToken = async (
-  req: AuthRequest,
-  res: Response
-): Promise<void> => {
+export const validateToken = async (req: Request, res: Response): Promise<void> => {
   try {
-    const token =
-      req.header("Authorization")?.replace("Bearer ", "") || req.cookies?.token;
-
+    const token = req.header('Authorization')?.replace('Bearer ', '') || (req as any).cookies?.token;
     if (!token) {
-      res.status(200).json({
-        success: true,
-        data: { valid: false },
-        timestamp: new Date().toISOString(),
-      });
+      res.status(200).json({ success: true, data: { valid: false }, timestamp: new Date().toISOString() });
       return;
     }
-
     jwt.verify(token, JWT_CONFIG.secret);
-
-    res.status(200).json({
-      success: true,
-      data: { valid: true },
-      timestamp: new Date().toISOString(),
-    });
-  } catch (error) {
-    res.status(200).json({
-      success: true,
-      data: { valid: false },
-      timestamp: new Date().toISOString(),
-    });
+    res.status(200).json({ success: true, data: { valid: true }, timestamp: new Date().toISOString() });
+  } catch {
+    res.status(200).json({ success: true, data: { valid: false }, timestamp: new Date().toISOString() });
   }
 };
 
-// @desc    Refresh token
-// @route   POST /api/auth/refresh
-// @access  Private
-export const refreshToken = async (
-  req: AuthRequest,
-  res: Response
-): Promise<void> => {
-  try {
-    if (!req.user) {
-      res.status(401).json({
-        success: false,
-        error: "Not authenticated",
-        code: "NOT_AUTHENTICATED",
-      });
-      return;
-    }
-
-    // Generate new token
-    const token = generateToken(req.user._id.toString());
-
-    // Set cookie
-    res.cookie("token", token, JWT_CONFIG.cookieOptions);
-
-    res.status(200).json({
-      success: true,
-      data: { token },
-      message: "Token refreshed successfully",
-      timestamp: new Date().toISOString(),
-    });
-  } catch (error) {
-    console.error("Refresh token error:", error);
-    res.status(500).json({
-      success: false,
-      error: "Token refresh failed",
-      code: "REFRESH_ERROR",
-    });
+export const refreshToken = async (req: AuthRequest, res: Response): Promise<void> => {
+  if (!req.account) {
+    res.status(401).json({ success: false, error: 'Not authenticated', code: 'NOT_AUTHENTICATED' });
+    return;
   }
+  const token = setAuthCookie(res, String(req.account.id), req.account.role);
+  res.status(200).json({ success: true, data: { token }, message: 'Token refreshed', timestamp: new Date().toISOString() });
 };

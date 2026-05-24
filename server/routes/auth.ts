@@ -1,25 +1,24 @@
 import express from 'express';
 import {
-  signup,
+  signupInstitute,
+  signupTeacher,
+  signupVendor,
   login,
   logout,
-  getCurrentUser,
+  me,
   validateToken,
   refreshToken,
 } from '../controllers/authController.js';
-import { updateUserProfile, getUserProfile } from '../controllers/userController.js';
 import { authenticate } from '../middleware/auth.js';
 
 const router = express.Router();
 
-router.post('/signup', signup);
+router.post('/institute/signup', signupInstitute);
+router.post('/teacher/signup', signupTeacher);
+router.post('/vendor/signup', signupVendor);
 router.post('/login', login);
 router.post('/logout', authenticate, logout);
-router.get('/me', authenticate, getCurrentUser);
-router.put('/me', authenticate, updateUserProfile);
-router.get('/profile', authenticate, getUserProfile);
-router.put('/profile', authenticate, updateUserProfile);
-router.patch('/profile', authenticate, updateUserProfile);
+router.get('/me', authenticate, me);
 router.get('/validate', validateToken);
 router.post('/refresh', authenticate, refreshToken);
 
