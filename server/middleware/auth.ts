@@ -1,141 +1,53 @@
 import { Request, Response, NextFunction } from 'express';
 import jwt from 'jsonwebtoken';
-import User, { IUser } from '../models/User.js';
 import { JWT_CONFIG } from '../config/jwt.js';
+import { loadBundle } from '../services/authService.js';
+import type { AccountRole } from '../models/Account.js';
 
 export interface AuthRequest extends Request {
-  user?: IUser;
-  userId?: string;
+  account?: any;
+  profile?: any;
+  subscription?: any;
 }
 
-export const authenticate = async (
-  req: AuthRequest,
-  res: Response,
-  next: NextFunction
-): Promise<void> => {
+export async function authenticate(req: AuthRequest, res: Response, next: NextFunction): Promise<void> {
   try {
-    // Get token from header or cookie
-    const token = req.header('Authorization')?.replace('Bearer ', '') || req.cookies?.token;
-
+    const token =
+      req.header('Authorization')?.replace('Bearer ', '') || (req as any).cookies?.token;
     if (!token) {
-      res.status(401).json({
-        success: false,
-        error: 'Authentication required',
-        code: 'AUTH_REQUIRED',
-      });
+      res.status(401).json({ success: false, error: 'Not authenticated', code: 'NOT_AUTHENTICATED' });
       return;
     }
-
-    // Verify token
-    const decoded = jwt.verify(token, JWT_CONFIG.secret) as { userId: string };
-
-    // Find user
-    const user = await User.findById(decoded.userId)
-      .select('-password')
-      .populate('subscription.planId');
-
-    if (!user) {
-      res.status(401).json({
-        success: false,
-        error: 'User not found',
-        code: 'USER_NOT_FOUND',
-      });
+    const payload = jwt.verify(token, JWT_CONFIG.secret) as { accountId: string; role: string };
+    const bundle = await loadBundle(payload.accountId);
+    if (!bundle.account) {
+      res.status(401).json({ success: false, error: 'Account not found', code: 'NOT_FOUND' });
       return;
     }
-
-    if (!user.isActive) {
-      res.status(403).json({
-        success: false,
-        error: 'Account is deactivated',
-        code: 'ACCOUNT_DEACTIVATED',
-      });
+    if (!bundle.account.isActive) {
+      res.status(401).json({ success: false, error: 'Account inactive', code: 'ACCOUNT_INACTIVE' });
       return;
     }
-
-    // Attach user to request
-    req.user = user;
-    req.userId = user._id.toString();
+    req.account = bundle.account;
+    req.profile = bundle.profile;
+    req.subscription = bundle.subscription;
     next();
-  } catch (error) {
-    if (error instanceof jwt.TokenExpiredError) {
-      res.status(401).json({
-        success: false,
-        error: 'Token expired',
-        code: 'TOKEN_EXPIRED',
-      });
-      return;
-    }
-
-    if (error instanceof jwt.JsonWebTokenError) {
-      res.status(401).json({
-        success: false,
-        error: 'Invalid token',
-        code: 'INVALID_TOKEN',
-      });
-      return;
-    }
-
-    res.status(500).json({
-      success: false,
-      error: 'Authentication failed',
-      code: 'AUTH_ERROR',
-    });
+  } catch (err) {
+    res.status(401).json({ success: false, error: 'Invalid token', code: 'INVALID_TOKEN' });
   }
-};
+}
 
-export const authorize = (...roles: string[]) => {
-  return (req: AuthRequest, res: Response, next: NextFunction): void => {
-    if (!req.user) {
-      res.status(401).json({
-        success: false,
-        error: 'Authentication required',
-        code: 'AUTH_REQUIRED',
-      });
+export function requireRole(role: AccountRole | AccountRole[]) {
+  const allowed = Array.isArray(role) ? role : [role];
+  return (req: AuthRequest, res: Response, next: NextFunction) => {
+    if (!req.account) {
+      res.status(401).json({ success: false, error: 'Not authenticated', code: 'NOT_AUTHENTICATED' });
       return;
     }
-
-    if (!roles.includes(req.user.role)) {
-      res.status(403).json({
-        success: false,
-        error: 'Insufficient permissions',
-        code: 'FORBIDDEN',
-      });
+    if (!allowed.includes(req.account.role)) {
+      res.status(403).json({ success: false, error: 'Forbidden', code: 'FORBIDDEN' });
       return;
     }
-
     next();
   };
-};
-
-export const optionalAuth = async (
-  req: AuthRequest,
-  res: Response,
-  next: NextFunction
-): Promise<void> => {
-  try {
-    const token = req.header('Authorization')?.replace('Bearer ', '') || req.cookies?.token;
-
-    if (token) {
-      const decoded = jwt.verify(token, JWT_CONFIG.secret) as { userId: string };
-      const user = await User.findById(decoded.userId)
-        .select('-password')
-        .populate('subscription.planId');
-      
-      if (user && user.isActive) {
-        req.user = user;
-        req.userId = user._id.toString();
-      }
-    }
-    
-    next();
-  } catch (error) {
-    // Continue without authentication
-    next();
-  }
-};
-
-// Aliases for compatibility
-export const protect = authenticate;
-export const restrictTo = authorize;
-
-export const requireAdmin = authorize('admin');
+}
