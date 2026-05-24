@@ -1,7 +1,6 @@
 import mongoose from 'mongoose';
 import dotenv from 'dotenv';
 import { vehiclesData } from './seedData/vehicles.js';
-import { usersData, userCredentials } from './seedData/users.js';
 import { jobsData } from './seedData/jobs.js';
 import { suppliersData } from './seedData/suppliers.js';
 import { subscriptionPlansData, sampleNotificationsData } from './seedData/subscriptions.js';
@@ -123,20 +122,13 @@ async function clearDatabase() {
   }
 }
 
-// Seed users (as Accounts)
+// Seed users (as Accounts) — legacy stub; use scripts/seedData/accounts.ts for full seeding
 async function seedUsers() {
   log.section('Seeding Users');
-  try {
-    const users = await Account.insertMany(usersData);
-    log.success(`Created ${users.length} users`);
-    log.info(`- ${users.filter((u: any) => u.role === 'admin').length} admin users`);
-    log.info(`- ${users.filter((u: any) => u.role === 'institute').length} institute users`);
-    log.info(`- ${users.filter((u: any) => u.role === 'teacher').length} teacher users`);
-    return users;
-  } catch (error) {
-    log.error(`Error seeding users: ${error}`);
-    throw error;
-  }
+  log.warning('User seeding skipped in legacy seed.ts — run `npm run seed:accounts` instead');
+  const users = await Account.find({});
+  log.info(`Found ${users.length} existing accounts`);
+  return users;
 }
 
 // Seed subscription plans
@@ -395,24 +387,8 @@ async function seedAds() {
 // Display credentials
 function displayCredentials() {
   log.section('Login Credentials');
-  
-  console.log(`\n${colors.bright}Admin Access:${colors.reset}`);
-  console.log(`Email: ${colors.yellow}${userCredentials.admin.email}${colors.reset}`);
-  console.log(`Password: ${colors.yellow}${userCredentials.admin.password}${colors.reset}`);
-  
-  console.log(`\n${colors.bright}Support Admin:${colors.reset}`);
-  console.log(`Email: ${colors.yellow}${userCredentials.support.email}${colors.reset}`);
-  console.log(`Password: ${colors.yellow}${userCredentials.support.password}${colors.reset}`);
-  
-  console.log(`\n${colors.bright}Sample Institute:${colors.reset}`);
-  console.log(`Email: ${colors.yellow}${userCredentials.institute.email}${colors.reset}`);
-  console.log(`Password: ${colors.yellow}${userCredentials.institute.password}${colors.reset}`);
-  
-  console.log(`\n${colors.bright}Sample Teacher:${colors.reset}`);
-  console.log(`Email: ${colors.yellow}${userCredentials.teacher.email}${colors.reset}`);
-  console.log(`Password: ${colors.yellow}${userCredentials.teacher.password}${colors.reset}`);
-  
-  console.log(`\n${colors.cyan}Note: All institute and teacher accounts use the same password for demo purposes.${colors.reset}`);
+  console.log(`\n${colors.cyan}Run \`npm run seed:accounts\` to see full persona credentials.${colors.reset}`);
+  console.log(`${colors.cyan}Default password for all seeded test accounts: password123${colors.reset}`);
 }
 
 // Main seed function

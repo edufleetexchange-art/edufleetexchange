@@ -12,7 +12,9 @@
     "lint": "eslint . --ext ts --report-unused-disable-directives",
     "test": "vitest run",
     "test:watch": "vitest",
-    "seed:users": "tsx ./scripts/seedData/users.ts"
+    "seed": "tsx ./scripts/seedData/index.ts",
+    "seed:accounts": "tsx ./scripts/seedData/accounts.ts",
+    "seed:reset": "tsx ./scripts/seedData/reset.ts && npm run seed"
   },
   "engines": {
     "node": ">=18.0.0",
