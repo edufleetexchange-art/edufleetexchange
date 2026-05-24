@@ -31,6 +31,7 @@ import salesRoutes from './routes/sales.js';
 import personaAccessRoutes from './routes/personaAccessRoutes.js';
 import crmRoutes from './routes/crm.js';
 import publicRoutes from './routes/public.js';
+import accountRoutes from './routes/accounts.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -82,6 +83,7 @@ app.use(`${apiPrefix}/users`, userRoutes);
 app.use(`${apiPrefix}/ads`, adRoutes);
 app.use(`${apiPrefix}/access`, personaAccessRoutes);
 app.use(`${apiPrefix}/crm`, crmRoutes);
+app.use(`${apiPrefix}/accounts`, accountRoutes);
 
 // 404 handler for undefined routes
 app.use((req: Request, res: Response) => {
@@ -148,6 +150,7 @@ const server = app.listen(ENV.PORT, () => {
   console.log(`  ${apiPrefix}/ads`);
   console.log(`  ${apiPrefix}/access`);
   console.log(`  ${apiPrefix}/crm`);
+  console.log(`  ${apiPrefix}/accounts`);
 });
 
 // Graceful shutdown
