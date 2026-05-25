@@ -3,6 +3,8 @@ import jwt from 'jsonwebtoken';
 import { JWT_CONFIG } from '../config/jwt.js';
 import * as authService from '../services/authService.js';
 import { AuthRequest } from '../middleware/auth.js';
+import { createResetToken, consumeResetToken } from '../services/passwordResetService.js';
+import { sendPasswordResetEmail } from '../utils/email.js';
 
 function setAuthCookie(res: Response, accountId: string, role: string) {
   const token = jwt.sign({ accountId, role }, JWT_CONFIG.secret, { expiresIn: JWT_CONFIG.expiresIn as any });
@@ -93,4 +95,52 @@ export const refreshToken = async (req: AuthRequest, res: Response): Promise<voi
   }
   const token = setAuthCookie(res, String(req.account.id), req.account.role);
   res.status(200).json({ success: true, data: { token }, message: 'Token refreshed', timestamp: new Date().toISOString() });
+};
+
+export const forgotPassword = async (req: Request, res: Response): Promise<void> => {
+  const { email } = req.body || {};
+  if (!email) {
+    res.status(400).json({ success: false, error: 'Email is required', code: 'MISSING_EMAIL' });
+    return;
+  }
+  try {
+    const result = await createResetToken(email);
+    if (result) {
+      const clientUrl = process.env.CLIENT_URL ?? 'http://localhost:3000';
+      const resetUrl = `${clientUrl}/reset-password?token=${result.rawToken}`;
+      await sendPasswordResetEmail(result.account.email, resetUrl);
+    }
+    // Always return 200 to prevent email enumeration
+    res.status(200).json({
+      success: true,
+      message: 'If an account with that email exists, a reset link has been sent.',
+      timestamp: new Date().toISOString(),
+    });
+  } catch (err) {
+    console.error('[forgotPassword]', err);
+    res.status(200).json({
+      success: true,
+      message: 'If an account with that email exists, a reset link has been sent.',
+      timestamp: new Date().toISOString(),
+    });
+  }
+};
+
+export const resetPassword = async (req: Request, res: Response): Promise<void> => {
+  const { token, newPassword } = req.body || {};
+  if (!token || !newPassword) {
+    res.status(400).json({ success: false, error: 'token and newPassword required', code: 'MISSING_FIELDS' });
+    return;
+  }
+  if (newPassword.length < 6) {
+    res.status(400).json({ success: false, error: 'Password must be at least 6 characters', code: 'PASSWORD_TOO_SHORT' });
+    return;
+  }
+  const result = await consumeResetToken(token, newPassword);
+  if (!result.ok) {
+    const status = result.reason === 'token_not_found' || result.reason === 'token_already_used' || result.reason === 'token_expired' ? 400 : 500;
+    res.status(status).json({ success: false, error: result.reason, code: result.reason.toUpperCase() });
+    return;
+  }
+  res.status(200).json({ success: true, message: 'Password reset successfully', timestamp: new Date().toISOString() });
 };
