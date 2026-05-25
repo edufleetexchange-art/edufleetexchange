@@ -8,6 +8,8 @@ import {
   me,
   validateToken,
   refreshToken,
+  forgotPassword,
+  resetPassword,
 } from '../controllers/authController.js';
 import { authenticate } from '../middleware/auth.js';
 
@@ -21,5 +23,7 @@ router.post('/logout', authenticate, logout);
 router.get('/me', authenticate, me);
 router.get('/validate', validateToken);
 router.post('/refresh', authenticate, refreshToken);
+router.post('/forgot-password', forgotPassword);
+router.post('/reset-password', resetPassword);
 
 export default router;
