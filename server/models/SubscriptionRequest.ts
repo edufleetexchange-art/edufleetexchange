@@ -14,7 +14,7 @@ export interface ISubscriptionRequest extends Document {
 
 const SubscriptionRequestSchema: Schema = new Schema(
   {
-    userId: { type: Schema.Types.ObjectId, ref: 'User', required: true },
+    userId: { type: Schema.Types.ObjectId, ref: 'Account', required: true },
     currentPlanId: { type: Schema.Types.ObjectId, ref: 'SubscriptionPlan', required: true },
     requestedPlanId: { type: Schema.Types.ObjectId, ref: 'SubscriptionPlan', required: true },
     requestType: { type: String, enum: ['upgrade', 'downgrade', 'renewal'], required: true },

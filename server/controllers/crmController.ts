@@ -29,18 +29,18 @@ export const getLeadActivities = async (req: AuthRequest, res: Response): Promis
  */
 export const createActivity = async (req: AuthRequest, res: Response): Promise<void> => {
   try {
-    if (!req.user) {
+    if (!req.account) {
       res.status(401).json({ success: false, error: 'Not authenticated' });
       return;
     }
 
     const activity = await Activity.create({
       ...req.body,
-      userId: req.user._id
+      userId: req.account!.id
     });
 
     await logAction({
-      user: req.user,
+      user: req.account as any,
       action: 'CREATE_CRM_ACTIVITY',
       targetId: activity._id.toString(),
       targetType: 'Activity',
@@ -61,13 +61,13 @@ export const createActivity = async (req: AuthRequest, res: Response): Promise<v
  */
 export const getMyTasks = async (req: AuthRequest, res: Response): Promise<void> => {
   try {
-    if (!req.user) {
+    if (!req.account) {
       res.status(401).json({ success: false, error: 'Not authenticated' });
       return;
     }
 
     const { status } = req.query;
-    const query: any = { assignedTo: req.user._id };
+    const query: any = { assignedTo: req.account!.id };
     
     if (status && status !== 'all') {
       query.status = status;
@@ -91,19 +91,19 @@ export const getMyTasks = async (req: AuthRequest, res: Response): Promise<void>
  */
 export const createTask = async (req: AuthRequest, res: Response): Promise<void> => {
   try {
-    if (!req.user) {
+    if (!req.account) {
       res.status(401).json({ success: false, error: 'Not authenticated' });
       return;
     }
 
     const task = await Task.create({
       ...req.body,
-      createdBy: req.user._id,
-      assignedTo: req.body.assignedTo || req.user._id
+      createdBy: req.account!.id,
+      assignedTo: req.body.assignedTo || req.account!.id
     });
 
     await logAction({
-      user: req.user,
+      user: req.account as any,
       action: 'CREATE_CRM_TASK',
       targetId: task._id.toString(),
       targetType: 'Task',

@@ -41,7 +41,7 @@ const applicationSchema = new Schema<IApplication>(
     },
     teacherId: {
       type: Schema.Types.ObjectId,
-      ref: 'User',
+      ref: 'Account',
       required: true,
     },
     teacherName: {
@@ -50,7 +50,7 @@ const applicationSchema = new Schema<IApplication>(
     },
     instituteId: {
       type: Schema.Types.ObjectId,
-      ref: 'User',
+      ref: 'Account',
       required: true,
     },
     instituteName: {
@@ -92,7 +92,7 @@ const applicationSchema = new Schema<IApplication>(
       changedAt: Date,
       changedBy: {
         type: Schema.Types.ObjectId,
-        ref: 'User',
+        ref: 'Account',
       },
     }],
   },

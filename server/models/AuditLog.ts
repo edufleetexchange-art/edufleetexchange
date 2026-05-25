@@ -18,7 +18,7 @@ const auditLogSchema = new Schema<IAuditLog>(
   {
     userId: {
       type: Schema.Types.ObjectId,
-      ref: 'User',
+      ref: 'Account',
       required: true,
     },
     employeeId: String,

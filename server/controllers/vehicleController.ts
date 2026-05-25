@@ -1,7 +1,8 @@
 import { Response } from 'express';
 import Vehicle from '../models/Vehicle.js';
 import Notification from '../models/Notification.js';
-import User from '../models/User.js';
+import Account from '../models/Account.js';
+import Subscription from '../models/Subscription.js';
 import { logAction } from '../utils/auditLogger.js';
 import { AuthRequest } from '../middleware/auth.js';
 import { ISubscriptionPlan } from '../models/SubscriptionPlan.js';
@@ -26,7 +27,7 @@ const getDataDelayDate = (user: any): Date | null => {
 export const getVehicles = async (req: AuthRequest, res: Response): Promise<void> => {
   try {
     // Restrict access for vendors
-    if (req.user && req.user.role === 'vendor') {
+    if (req.account && req.account.role === 'vendor') {
       res.status(403).json({
         success: false,
         error: 'Vehicle browsing is not applicable for vendors',
@@ -55,11 +56,11 @@ export const getVehicles = async (req: AuthRequest, res: Response): Promise<void
       // If specific status requested (e.g. from admin or owner filters)
       if (status === 'approved') {
         // For 'approved' filter, also include owned/assisted pending/rejected listings for logged-in users
-        if (req.user && req.user.role !== 'admin') {
+        if (req.account && req.account.role !== 'admin') {
           query.$or = [
             { status: 'approved' },
-            { sellerId: req.user._id },
-            { assistedBy: req.user._id }
+            { sellerId: req.account.id },
+            { assistedBy: req.account.id }
           ];
         } else {
           query.status = 'approved';
@@ -67,13 +68,13 @@ export const getVehicles = async (req: AuthRequest, res: Response): Promise<void
       } else {
         query.status = status;
       }
-    } else if (!req.user || req.user.role !== 'admin') {
+    } else if (!req.account || req.account.role !== 'admin') {
       // Default visibility for non-admins: approved listings OR owned/assisted listings
-      if (req.user) {
+      if (req.account) {
         query.$or = [
           { status: 'approved' },
-          { sellerId: req.user._id },
-          { assistedBy: req.user._id }
+          { sellerId: req.account.id },
+          { assistedBy: req.account.id }
         ];
       } else {
         query.status = 'approved';
@@ -137,7 +138,7 @@ export const getVehicles = async (req: AuthRequest, res: Response): Promise<void
 export const getVehicle = async (req: AuthRequest, res: Response): Promise<void> => {
   try {
     // Restrict access for vendors
-    if (req.user && req.user.role === 'vendor') {
+    if (req.account && req.account.role === 'vendor') {
       res.status(403).json({
         success: false,
         error: 'Vehicle browsing is not applicable for vendors',
@@ -158,17 +159,17 @@ export const getVehicle = async (req: AuthRequest, res: Response): Promise<void>
     }
 
     // Check visibility based on delay if not admin/owner
-    if (!req.user || (req.user.role !== 'admin' && req.user._id.toString() !== vehicle.sellerId.toString())) {
+    if (!req.account || (req.account.role !== 'admin' && req.account.id !== vehicle.sellerId.toString())) {
       // Removed delay check to allow visibility
     }
 
     // Only show approved vehicles to non-admin/non-owner/non-assistant users
     if (
       vehicle.status !== 'approved' &&
-      (!req.user || (
-        req.user.role !== 'admin' && 
-        req.user._id.toString() !== vehicle.sellerId.toString() &&
-        (!vehicle.assistedBy || req.user._id.toString() !== vehicle.assistedBy.toString())
+      (!req.account || (
+        req.account.role !== 'admin' &&
+        req.account.id !== vehicle.sellerId.toString() &&
+        (!vehicle.assistedBy || req.account.id !== vehicle.assistedBy.toString())
       ))
     ) {
       res.status(404).json({
@@ -203,7 +204,7 @@ export const getVehicle = async (req: AuthRequest, res: Response): Promise<void>
 // @access  Private (Institute)
 export const createVehicle = async (req: AuthRequest, res: Response): Promise<void> => {
   try {
-    if (!req.user) {
+    if (!req.account) {
       res.status(401).json({
         success: false,
         error: 'Authentication required',
@@ -213,9 +214,9 @@ export const createVehicle = async (req: AuthRequest, res: Response): Promise<vo
     }
 
     // Check subscription permissions for vehicle advertising
-    if (req.user.role !== 'admin' && req.user.role !== 'sales') {
-      const plan = req.user.subscription?.planId as unknown as ISubscriptionPlan;
-      
+    if (req.account.role !== 'admin' && req.account.role !== 'sales') {
+      const plan = req.subscription?.planId as unknown as ISubscriptionPlan;
+
       if (plan && !plan.features.canAdvertiseVehicles) {
         res.status(403).json({
           success: false,
@@ -227,7 +228,7 @@ export const createVehicle = async (req: AuthRequest, res: Response): Promise<vo
 
       // Check listing limit
       const maxListings = plan?.features?.maxListings ?? 0;
-      const listingsUsed = req.user.subscription?.listingsUsed ?? 0;
+      const listingsUsed = req.subscription?.listingsUsed ?? 0;
 
       if (maxListings !== -1 && listingsUsed >= maxListings) {
         res.status(403).json({
@@ -239,18 +240,18 @@ export const createVehicle = async (req: AuthRequest, res: Response): Promise<vo
       }
     }
 
-    let sellerId = req.user._id;
-    let sellerName = req.user.instituteName || req.user.name;
-    let sellerEmail = req.user.email;
-    let sellerPhone = req.user.phone;
+    let sellerId = req.account.id;
+    let sellerName = req.profile?.instituteName || req.account.name;
+    let sellerEmail = req.account.email;
+    let sellerPhone = req.account.phone;
     let actualSeller: any = null;
 
     // If sales or admin, allow providing seller details (listing on behalf of school)
-    if ((req.user.role === 'admin' || req.user.role === 'sales') && req.body.sellerId) {
-      actualSeller = await User.findById(req.body.sellerId);
+    if ((req.account.role === 'admin' || req.account.role === 'sales') && req.body.sellerId) {
+      actualSeller = await Account.findById(req.body.sellerId);
       if (actualSeller) {
         sellerId = actualSeller._id;
-        sellerName = actualSeller.instituteName || actualSeller.name;
+        sellerName = (actualSeller as any).instituteName || actualSeller.name;
         sellerEmail = actualSeller.email;
         sellerPhone = actualSeller.phone;
       }
@@ -262,15 +263,15 @@ export const createVehicle = async (req: AuthRequest, res: Response): Promise<vo
       sellerName,
       sellerEmail,
       sellerPhone,
-      status: (req.user.role === 'admin' || req.user.role === 'sales') ? 'approved' : 'pending',
+      status: (req.account.role === 'admin' || req.account.role === 'sales') ? 'approved' : 'pending',
     };
 
     const vehicle = await Vehicle.create(vehicleData);
 
     // Log action if staff member assisted
-    if (req.user.role === 'sales' || req.user.role === 'admin') {
+    if (req.account.role === 'sales' || req.account.role === 'admin') {
       await logAction({
-        user: req.user,
+        user: req.account as any,
         action: 'ASSISTED_VEHICLE_LISTING',
         targetId: vehicle._id.toString(),
         targetType: 'Vehicle',
@@ -280,13 +281,17 @@ export const createVehicle = async (req: AuthRequest, res: Response): Promise<vo
     }
 
     // Update listingsUsed counter for the actual seller (Institute)
-    if (actualSeller && actualSeller.subscription) {
-      actualSeller.subscription.listingsUsed = (actualSeller.subscription.listingsUsed || 0) + 1;
-      await actualSeller.save();
-    } else if (req.user.subscription && req.user.role !== 'sales') {
-      // Normal flow (Institute creating for themselves)
-      req.user.subscription.listingsUsed = (req.user.subscription.listingsUsed || 0) + 1;
-      await (req.user as any).save();
+    if (actualSeller) {
+      await Subscription.findOneAndUpdate(
+        { accountId: actualSeller._id, status: 'active' },
+        { $inc: { listingsUsed: 1 } }
+      );
+    } else if (req.subscription && req.account.role !== 'sales') {
+      // Normal flow (Institute creating for themselves) — update their Subscription document
+      await Subscription.findOneAndUpdate(
+        { accountId: req.account.id, status: 'active' },
+        { $inc: { listingsUsed: 1 } }
+      );
     }
 
     res.status(201).json({
@@ -310,7 +315,7 @@ export const createVehicle = async (req: AuthRequest, res: Response): Promise<vo
 // @access  Private (Owner)
 export const updateVehicle = async (req: AuthRequest, res: Response): Promise<void> => {
   try {
-    if (!req.user) {
+    if (!req.account) {
       res.status(401).json({
         success: false,
         error: 'Authentication required',
@@ -331,9 +336,9 @@ export const updateVehicle = async (req: AuthRequest, res: Response): Promise<vo
     }
 
     // Check ownership or assistant (if pending)
-    const isOwner = vehicle.sellerId.toString() === req.user._id.toString();
-    const isAssistant = vehicle.assistedBy?.toString() === req.user._id.toString();
-    const isAdmin = req.user.role === 'admin';
+    const isOwner = vehicle.sellerId.toString() === req.account.id;
+    const isAssistant = vehicle.assistedBy?.toString() === req.account.id;
+    const isAdmin = req.account.role === 'admin';
 
     if (!isOwner && !isAdmin && (!isAssistant || vehicle.status !== 'pending')) {
       res.status(403).json({
@@ -369,7 +374,7 @@ export const updateVehicle = async (req: AuthRequest, res: Response): Promise<vo
 // @access  Private (Owner)
 export const deleteVehicle = async (req: AuthRequest, res: Response): Promise<void> => {
   try {
-    if (!req.user) {
+    if (!req.account) {
       res.status(401).json({
         success: false,
         error: 'Authentication required',
@@ -390,9 +395,9 @@ export const deleteVehicle = async (req: AuthRequest, res: Response): Promise<vo
     }
 
     // Check ownership, admin, or assistant (if pending)
-    const isOwner = vehicle.sellerId.toString() === req.user._id.toString();
-    const isAssistant = vehicle.assistedBy?.toString() === req.user._id.toString();
-    const isAdmin = req.user.role === 'admin';
+    const isOwner = vehicle.sellerId.toString() === req.account.id;
+    const isAssistant = vehicle.assistedBy?.toString() === req.account.id;
+    const isAdmin = req.account.role === 'admin';
 
     if (!isOwner && !isAdmin && (!isAssistant || vehicle.status !== 'pending')) {
       res.status(403).json({
@@ -427,7 +432,7 @@ export const deleteVehicle = async (req: AuthRequest, res: Response): Promise<vo
 export const getPriorityListings = async (req: AuthRequest, res: Response): Promise<void> => {
   try {
     // Restrict for vendors
-    if (req.user && req.user.role === 'vendor') {
+    if (req.account && req.account.role === 'vendor') {
       res.status(200).json({ success: true, data: [], timestamp: new Date().toISOString() });
       return;
     }
@@ -465,7 +470,7 @@ export const getPriorityListings = async (req: AuthRequest, res: Response): Prom
 export const getRecentListings = async (req: AuthRequest, res: Response): Promise<void> => {
   try {
     // Restrict for vendors
-    if (req.user && req.user.role === 'vendor') {
+    if (req.account && req.account.role === 'vendor') {
       res.status(200).json({ success: true, data: [], timestamp: new Date().toISOString() });
       return;
     }
@@ -501,7 +506,7 @@ export const getRecentListings = async (req: AuthRequest, res: Response): Promis
 // @access  Private (Institute)
 export const getMyListings = async (req: AuthRequest, res: Response): Promise<void> => {
   try {
-    if (!req.user) {
+    if (!req.account) {
       res.status(401).json({
         success: false,
         error: 'Authentication required',
@@ -511,7 +516,7 @@ export const getMyListings = async (req: AuthRequest, res: Response): Promise<vo
     }
 
     const vehicles = await Vehicle.find({
-      sellerId: req.user._id,
+      sellerId: req.account.id,
     })
       .sort({ createdAt: -1 })
       .lean();

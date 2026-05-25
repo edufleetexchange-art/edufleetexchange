@@ -7,7 +7,7 @@ export const getNotifications = async (req: Request, res: Response) => {
   try {
     // Use type assertion to AuthRequest to access userId safely
     const authReq = req as AuthRequest;
-    const userId = authReq.userId || (authReq.user && authReq.user._id);
+    const userId = authReq.account?.id;
 
     if (!userId) {
       return res.status(401).json({
@@ -66,7 +66,7 @@ export const getNotifications = async (req: Request, res: Response) => {
 export const getUnreadCount = async (req: Request, res: Response) => {
   try {
     const authReq = req as AuthRequest;
-    const userId = authReq.userId || (authReq.user && authReq.user._id);
+    const userId = authReq.account?.id;
 
     if (!userId) {
       return res.status(401).json({
@@ -98,7 +98,7 @@ export const getUnreadCount = async (req: Request, res: Response) => {
 export const markAsRead = async (req: Request, res: Response) => {
   try {
     const authReq = req as AuthRequest;
-    const userId = authReq.userId || (authReq.user && authReq.user._id);
+    const userId = authReq.account?.id;
     const notificationId = req.params.id;
 
     const notification = await Notification.findOne({
@@ -134,7 +134,7 @@ export const markAsRead = async (req: Request, res: Response) => {
 export const markAllAsRead = async (req: Request, res: Response) => {
   try {
     const authReq = req as AuthRequest;
-    const userId = authReq.userId || (authReq.user && authReq.user._id);
+    const userId = authReq.account?.id;
 
     await Notification.updateMany(
       { userId, isRead: false },
@@ -158,7 +158,7 @@ export const markAllAsRead = async (req: Request, res: Response) => {
 export const deleteNotification = async (req: Request, res: Response) => {
   try {
     const authReq = req as AuthRequest;
-    const userId = authReq.userId || (authReq.user && authReq.user._id);
+    const userId = authReq.account?.id;
     const notificationId = req.params.id;
 
     console.log(`[Delete Notification] Request for ID: ${notificationId} by User: ${userId}`);
@@ -193,4 +193,3 @@ export const deleteNotification = async (req: Request, res: Response) => {
     });
   }
 };
-0

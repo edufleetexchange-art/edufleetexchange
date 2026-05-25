@@ -24,13 +24,17 @@ import supplierRoutes from './routes/suppliers.js';
 import notificationRoutes from './routes/notifications.js';
 import uploadRoutes from './routes/upload.js';
 import subscriptionRoutes from './routes/subscriptions.js';
-import userRoutes from './routes/users.js';
+
 import adRoutes from './routes/ads.js';
 import marketingRoutes from './routes/marketing.js';
 import salesRoutes from './routes/sales.js';
 import personaAccessRoutes from './routes/personaAccessRoutes.js';
 import crmRoutes from './routes/crm.js';
 import publicRoutes from './routes/public.js';
+import accountRoutes from './routes/accounts.js';
+import teacherRoutes from './routes/teachers.js';
+import instituteRoutes from './routes/institutes.js';
+import vendorRoutes from './routes/vendors.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -78,10 +82,14 @@ app.use(`${apiPrefix}/upload`, uploadRoutes);
 app.use(`${apiPrefix}/subscriptions`, subscriptionRoutes);
 app.use(`${apiPrefix}/marketing`, marketingRoutes);
 app.use(`${apiPrefix}/sales`, salesRoutes);
-app.use(`${apiPrefix}/users`, userRoutes);
+
 app.use(`${apiPrefix}/ads`, adRoutes);
 app.use(`${apiPrefix}/access`, personaAccessRoutes);
 app.use(`${apiPrefix}/crm`, crmRoutes);
+app.use(`${apiPrefix}/accounts`, accountRoutes);
+app.use(`${apiPrefix}/teachers`, teacherRoutes);
+app.use(`${apiPrefix}/institutes`, instituteRoutes);
+app.use(`${apiPrefix}/vendors`, vendorRoutes);
 
 // 404 handler for undefined routes
 app.use((req: Request, res: Response) => {
@@ -144,10 +152,14 @@ const server = app.listen(ENV.PORT, () => {
   console.log(`  ${apiPrefix}/subscriptions`);
   console.log(`  ${apiPrefix}/marketing`);
   console.log(`  ${apiPrefix}/sales`);
-  console.log(`  ${apiPrefix}/users`);
+
   console.log(`  ${apiPrefix}/ads`);
   console.log(`  ${apiPrefix}/access`);
   console.log(`  ${apiPrefix}/crm`);
+  console.log(`  ${apiPrefix}/accounts`);
+  console.log(`  ${apiPrefix}/teachers`);
+  console.log(`  ${apiPrefix}/institutes`);
+  console.log(`  ${apiPrefix}/vendors`);
 });
 
 // Graceful shutdown

@@ -20,7 +20,7 @@ import {
  */
 export const getMyAccessControl = async (req: AuthRequest, res: Response) => {
   try {
-    const userId = req.userId;
+    const userId = req.account?.id;
     
     if (!userId) {
       return res.status(401).json({ error: 'Authentication required' });
@@ -40,7 +40,7 @@ export const getMyAccessControl = async (req: AuthRequest, res: Response) => {
  */
 export const checkVehicleListingPermission = async (req: AuthRequest, res: Response) => {
   try {
-    const userId = req.userId;
+    const userId = req.account?.id;
     
     if (!userId) {
       return res.status(401).json({ error: 'Authentication required' });
@@ -60,7 +60,7 @@ export const checkVehicleListingPermission = async (req: AuthRequest, res: Respo
  */
 export const checkJobPostPermission = async (req: AuthRequest, res: Response) => {
   try {
-    const userId = req.userId;
+    const userId = req.account?.id;
     
     if (!userId) {
       return res.status(401).json({ error: 'Authentication required' });
@@ -80,7 +80,7 @@ export const checkJobPostPermission = async (req: AuthRequest, res: Response) =>
  */
 export const checkJobApplicationPermission = async (req: AuthRequest, res: Response) => {
   try {
-    const userId = req.userId;
+    const userId = req.account?.id;
     
     if (!userId) {
       return res.status(401).json({ error: 'Authentication required' });
@@ -100,7 +100,7 @@ export const checkJobApplicationPermission = async (req: AuthRequest, res: Respo
  */
 export const checkProductListingPermission = async (req: AuthRequest, res: Response) => {
   try {
-    const userId = req.userId;
+    const userId = req.account?.id;
     
     if (!userId) {
       return res.status(401).json({ error: 'Authentication required' });

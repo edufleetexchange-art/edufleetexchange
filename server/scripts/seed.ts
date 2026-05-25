@@ -1,7 +1,6 @@
 import mongoose from 'mongoose';
 import dotenv from 'dotenv';
 import { vehiclesData } from './seedData/vehicles.js';
-import { usersData, userCredentials } from './seedData/users.js';
 import { jobsData } from './seedData/jobs.js';
 import { suppliersData } from './seedData/suppliers.js';
 import { subscriptionPlansData, sampleNotificationsData } from './seedData/subscriptions.js';
@@ -9,7 +8,7 @@ import { adsData } from './seedData/ads.js';
 import { applicationsData } from './seedData/applications.js';
 
 // Models
-import User from '../models/User.js';
+import Account from '../models/Account.js';
 import Vehicle from '../models/Vehicle.js';
 import Job from '../models/Job.js';
 import Application from '../models/Application.js';
@@ -92,8 +91,8 @@ async function connectDB() {
 async function clearDatabase() {
   log.section('Clearing Database');
   try {
-    await User.deleteMany({});
-    log.info('Cleared Users collection');
+    await Account.deleteMany({});
+    log.info('Cleared Accounts collection');
     
     await Vehicle.deleteMany({});
     log.info('Cleared Vehicles collection');
@@ -123,20 +122,13 @@ async function clearDatabase() {
   }
 }
 
-// Seed users
+// Seed users (as Accounts) — legacy stub; use scripts/seedData/accounts.ts for full seeding
 async function seedUsers() {
   log.section('Seeding Users');
-  try {
-    const users = await User.insertMany(usersData);
-    log.success(`Created ${users.length} users`);
-    log.info(`- ${users.filter(u => u.role === 'admin').length} admin users`);
-    log.info(`- ${users.filter(u => u.role === 'institute').length} institute users`);
-    log.info(`- ${users.filter(u => u.role === 'teacher').length} teacher users`);
-    return users;
-  } catch (error) {
-    log.error(`Error seeding users: ${error}`);
-    throw error;
-  }
+  log.warning('User seeding skipped in legacy seed.ts — run `npm run seed:accounts` instead');
+  const users = await Account.find({});
+  log.info(`Found ${users.length} existing accounts`);
+  return users;
 }
 
 // Seed subscription plans
@@ -187,14 +179,14 @@ async function seedSubscriptionPlans() {
 async function seedVehicles(users: any[]) {
   log.section('Seeding Vehicles');
   try {
-    const institutes = users.filter(u => u.role === 'institute');
-    
+    const institutes = (users as any[]).filter(u => u.role === 'institute');
+
     const vehiclesWithSellers = vehiclesData.map((vehicle, index) => {
-      const institute = institutes[index % institutes.length];
+      const institute = institutes[index % institutes.length] as any;
       return {
         ...vehicle,
         sellerId: institute._id,
-        sellerName: institute.instituteName,
+        sellerName: institute.instituteName || institute.name,
         sellerEmail: institute.email,
         sellerPhone: institute.phone || '+91-9999999999',
       };
@@ -216,14 +208,14 @@ async function seedVehicles(users: any[]) {
 async function seedJobs(users: any[]) {
   log.section('Seeding Job Listings');
   try {
-    const institutes = users.filter(u => u.role === 'institute');
+    const institutes = (users as any[]).filter(u => u.role === 'institute');
     
     const jobsWithInstitutes = jobsData.map((job, index) => {
-      const institute = institutes[index % institutes.length];
+      const institute = institutes[index % institutes.length] as any;
       return {
         ...job,
         instituteId: institute._id,
-        instituteName: job.instituteName || institute.instituteName,
+        instituteName: job.instituteName || institute.instituteName || institute.name,
       };
     });
     
@@ -243,24 +235,24 @@ async function seedJobs(users: any[]) {
 async function seedJobApplications(users: any[], jobs: any[]) {
   log.section('Seeding Job Applications (Enhanced)');
   try {
-    const teachers = users.filter(u => u.role === 'teacher');
+    const teachers = (users as any[]).filter(u => u.role === 'teacher');
     const applications = [];
     
     // Use enhanced seed data with real cover letters
     for (let i = 0; i < Math.min(applicationsData.length, jobs.length * 2); i++) {
       const appData = applicationsData[i];
-      const teacher = teachers[i % teachers.length];
+      const teacher = teachers[i % teachers.length] as any;
       const job = jobs[i % jobs.length];
-      
+
       // Get job institute details
-      const jobInstitute = users.find(u => u._id.equals(job.instituteId));
-      
+      const jobInstitute = users.find((u: any) => u._id.equals(job.instituteId)) as any;
+
       applications.push({
         jobId: job._id,
         teacherId: teacher._id,
         teacherName: teacher.name || appData.teacherName,
         instituteId: job.instituteId,
-        instituteName: jobInstitute?.instituteName || job.instituteName,
+        instituteName: jobInstitute?.instituteName || jobInstitute?.name || job.instituteName,
         coverLetter: appData.coverLetter,
         status: appData.status,
         appliedDate: appData.appliedDate,
@@ -291,7 +283,7 @@ async function seedJobApplications(users: any[], jobs: any[]) {
 async function seedSuppliers(users: any[]) {
   log.section('Seeding Suppliers');
   try {
-    const admin = users.find(u => u.role === 'admin');
+    const admin = (users as any[]).find(u => u.role === 'admin');
     if (!admin) {
       throw new Error('Admin user not found. Cannot seed suppliers without createdBy field.');
     }
@@ -317,16 +309,16 @@ async function seedSuppliers(users: any[]) {
 async function seedNotifications(users: any[], vehicles: any[]) {
   log.section('Seeding Notifications');
   try {
-    const institutes = users.filter(u => u.role === 'institute');
+    const institutes = (users as any[]).filter(u => u.role === 'institute');
     const notifications = [];
-    
+
     // Welcome notifications for all institutes
     for (const institute of institutes) {
       notifications.push({
         userId: institute._id,
         type: 'new_feature',
         title: 'Welcome to EduFleet Exchange!',
-        message: `Welcome ${institute.instituteName}! Start browsing vehicles or list your own.`,
+        message: `Welcome ${institute.instituteName || institute.name}! Start browsing vehicles or list your own.`,
         isRead: false,
         priority: 'low',
         createdAt: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000),
@@ -395,24 +387,8 @@ async function seedAds() {
 // Display credentials
 function displayCredentials() {
   log.section('Login Credentials');
-  
-  console.log(`\n${colors.bright}Admin Access:${colors.reset}`);
-  console.log(`Email: ${colors.yellow}${userCredentials.admin.email}${colors.reset}`);
-  console.log(`Password: ${colors.yellow}${userCredentials.admin.password}${colors.reset}`);
-  
-  console.log(`\n${colors.bright}Support Admin:${colors.reset}`);
-  console.log(`Email: ${colors.yellow}${userCredentials.support.email}${colors.reset}`);
-  console.log(`Password: ${colors.yellow}${userCredentials.support.password}${colors.reset}`);
-  
-  console.log(`\n${colors.bright}Sample Institute:${colors.reset}`);
-  console.log(`Email: ${colors.yellow}${userCredentials.institute.email}${colors.reset}`);
-  console.log(`Password: ${colors.yellow}${userCredentials.institute.password}${colors.reset}`);
-  
-  console.log(`\n${colors.bright}Sample Teacher:${colors.reset}`);
-  console.log(`Email: ${colors.yellow}${userCredentials.teacher.email}${colors.reset}`);
-  console.log(`Password: ${colors.yellow}${userCredentials.teacher.password}${colors.reset}`);
-  
-  console.log(`\n${colors.cyan}Note: All institute and teacher accounts use the same password for demo purposes.${colors.reset}`);
+  console.log(`\n${colors.cyan}Run \`npm run seed:accounts\` to see full persona credentials.${colors.reset}`);
+  console.log(`${colors.cyan}Default password for all seeded test accounts: password123${colors.reset}`);
 }
 
 // Main seed function

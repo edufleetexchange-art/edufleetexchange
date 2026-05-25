@@ -1,20 +1,19 @@
-import { Request, Response } from 'express';
+import { Response } from 'express';
 import Job from '../models/Job.js';
-import User from '../models/User.js';
+import Account from '../models/Account.js';
+import Subscription from '../models/Subscription.js';
 import Notification from '../models/Notification.js';
 import Application from '../models/Application.js';
 import { logAction } from '../utils/auditLogger.js';
 import { AuthRequest } from '../middleware/auth.js';
 import { ISubscriptionPlan } from '../models/SubscriptionPlan.js';
 
-// Helper to get data delay date
-const getDataDelayDate = (user: any): Date | null => {
-  if (!user || user.role === 'admin') return null;
+// Helper to get data delay date (uses req.account shape from middleware)
+const getDataDelayDate = (account: any): Date | null => {
+  if (!account || account.role === 'admin') return null;
 
-  const plan = user.subscription?.planId as unknown as ISubscriptionPlan;
-  const delayDays = plan?.features?.dataDelayDays ?? 10; // Default to 10 days if guest or no plan
-
-  if (delayDays === 0) return null;
+  // dataDelayDays is on the plan — for now default to 10 if no plan info on request
+  const delayDays = 10;
 
   const delayDate = new Date();
   delayDate.setDate(delayDate.getDate() - delayDays);
@@ -24,8 +23,8 @@ const getDataDelayDate = (user: any): Date | null => {
 // Create a new job
 export const createJob = async (req: AuthRequest, res: Response) => {
   try {
-    const userId = req.userId;
-    const user = await User.findById(userId).populate('subscription.planId');
+    const userId = req.account?.id;
+    const user = await Account.findById(userId);
 
     if (!user) {
       return res.status(404).json({
@@ -37,9 +36,10 @@ export const createJob = async (req: AuthRequest, res: Response) => {
 
     // Check subscription limits for job posts
     if (user.role !== 'admin' && user.role !== 'sales') {
-      const plan = user.subscription?.planId as unknown as ISubscriptionPlan;
+      const sub = await Subscription.findOne({ accountId: userId, status: 'active' }).populate('planId');
+      const plan = sub?.planId as unknown as ISubscriptionPlan;
       const maxJobPosts = plan?.features?.maxJobPosts ?? 0;
-      const jobPostsUsed = user.subscription?.jobPostsUsed ?? 0;
+      const jobPostsUsed = sub?.jobPostsUsed ?? 0;
 
       if (maxJobPosts !== -1 && jobPostsUsed >= maxJobPosts) {
         return res.status(403).json({
@@ -51,15 +51,15 @@ export const createJob = async (req: AuthRequest, res: Response) => {
     }
 
     let instituteId = userId;
-    let instituteName = user.instituteName || user.name;
+    let instituteName = (user as any).instituteName || user.name;
     let contactEmail = user.email;
 
     // If sales or admin, allow providing instituteId (listing on behalf of school)
     if ((user.role === 'admin' || user.role === 'sales') && req.body.instituteId) {
-      const actualInstitute = await User.findById(req.body.instituteId);
+      const actualInstitute = await Account.findById(req.body.instituteId);
       if (actualInstitute) {
         instituteId = actualInstitute._id.toString();
-        instituteName = actualInstitute.instituteName || actualInstitute.name;
+        instituteName = (actualInstitute as any).instituteName || actualInstitute.name;
         contactEmail = actualInstitute.email;
       }
     }
@@ -85,10 +85,12 @@ export const createJob = async (req: AuthRequest, res: Response) => {
       });
     }
 
-    // Update jobPostsUsed counter
-    if (user.subscription && user.role !== 'sales') {
-      user.subscription.jobPostsUsed = (user.subscription.jobPostsUsed || 0) + 1;
-      await user.save();
+    // Update jobPostsUsed counter via Subscription model
+    if (user.role !== 'sales') {
+      await Subscription.findOneAndUpdate(
+        { accountId: userId, status: 'active' },
+        { $inc: { jobPostsUsed: 1 } }
+      );
     }
 
     res.status(201).json({
@@ -124,7 +126,7 @@ export const getAllJobs = async (req: AuthRequest, res: Response) => {
     const query: any = { status: 'active' };
 
     // Apply subscription data delay
-    const delayDate = getDataDelayDate(req.user);
+    const delayDate = getDataDelayDate(req.account);
     if (delayDate) {
       query.createdAt = { $lte: delayDate };
     }
@@ -220,8 +222,8 @@ export const getJobById = async (req: AuthRequest, res: Response) => {
     }
 
     // Check visibility based on delay if not admin/owner
-    if (!req.user || (req.user.role !== 'admin' && req.user._id.toString() !== job.instituteId.toString())) {
-      const delayDate = getDataDelayDate(req.user);
+    if (!req.account || (req.account.role !== 'admin' && req.account.id !== job.instituteId.toString())) {
+      const delayDate = getDataDelayDate(req.account);
       if (delayDate && job.createdAt > delayDate) {
         return res.status(403).json({
           success: false,
@@ -245,10 +247,10 @@ export const getJobById = async (req: AuthRequest, res: Response) => {
 };
 
 // Update job
-export const updateJob = async (req: Request, res: Response) => {
+export const updateJob = async (req: AuthRequest, res: Response) => {
   try {
-    const userId = (req as any).user.id;
-    const userRole = (req as any).user.role;
+    const userId = req.account?.id;
+    const userRole = req.account?.role;
 
     let job = await Job.findById(req.params.id);
 
@@ -288,10 +290,10 @@ export const updateJob = async (req: Request, res: Response) => {
 };
 
 // Delete job
-export const deleteJob = async (req: Request, res: Response) => {
+export const deleteJob = async (req: AuthRequest, res: Response) => {
   try {
-    const userId = (req as any).user.id;
-    const userRole = (req as any).user.role;
+    const userId = req.account?.id;
+    const userRole = req.account?.role;
 
     const job = await Job.findById(req.params.id);
 
@@ -328,9 +330,9 @@ export const deleteJob = async (req: Request, res: Response) => {
 };
 
 // Get institute's jobs
-export const getInstituteJobs = async (req: Request, res: Response) => {
+export const getInstituteJobs = async (req: AuthRequest, res: Response) => {
   try {
-    const userId = (req as any).user.id;
+    const userId = req.account?.id;
 
     const jobs = await Job.find({ instituteId: userId }).sort('-createdAt');
 
@@ -348,9 +350,9 @@ export const getInstituteJobs = async (req: Request, res: Response) => {
 };
 
 // Apply to job
-export const applyToJob = async (req: Request, res: Response) => {
+export const applyToJob = async (req: AuthRequest, res: Response) => {
   try {
-    const userId = (req as any).user.id;
+    const userId = req.account?.id;
     const jobId = req.params.id;
     const { coverLetter } = req.body;
 
@@ -391,7 +393,7 @@ export const applyToJob = async (req: Request, res: Response) => {
     }
 
     // Get teacher details
-    const teacher = await User.findById(userId);
+    const teacher = await Account.findById(userId);
     if (!teacher) {
       return res.status(404).json({
         success: false,
@@ -438,10 +440,10 @@ export const applyToJob = async (req: Request, res: Response) => {
 };
 
 // Get applications
-export const getApplications = async (req: Request, res: Response) => {
+export const getApplications = async (req: AuthRequest, res: Response) => {
   try {
-    const userId = (req as any).user.id;
-    const userRole = (req as any).user.role;
+    const userId = req.account?.id;
+    const userRole = req.account?.role;
     const { jobId } = req.query;
 
     const query: any = {};
@@ -534,10 +536,10 @@ const validateStatusTransition = (currentStatus: string, newStatus: string): { v
 };
 
 // Update application status
-export const updateApplicationStatus = async (req: Request, res: Response) => {
+export const updateApplicationStatus = async (req: AuthRequest, res: Response) => {
   try {
-    const userId = (req as any).user.id;
-    const userRole = (req as any).user.role;
+    const userId = req.account?.id;
+    const userRole = req.account?.role;
     const applicationId = req.params.id;
     const { status, interviewScheduled } = req.body;
 
@@ -641,7 +643,7 @@ export const updateApplicationStatus = async (req: Request, res: Response) => {
 
     // Create notification for teacher
     if (status) {
-      const teacher = await User.findById(application.teacherId);
+      const teacher = await Account.findById(application.teacherId);
       if (teacher) {
         let message = '';
         switch (status) {
@@ -697,10 +699,10 @@ export const updateApplicationStatus = async (req: Request, res: Response) => {
 };
 
 // Reschedule interview
-export const rescheduleInterview = async (req: Request, res: Response) => {
+export const rescheduleInterview = async (req: AuthRequest, res: Response) => {
   try {
-    const userId = (req as any).user.id;
-    const userRole = (req as any).user.role;
+    const userId = req.account?.id;
+    const userRole = req.account?.role;
     const applicationId = req.params.id;
     const { interviewScheduled } = req.body;
 

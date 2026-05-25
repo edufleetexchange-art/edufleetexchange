@@ -34,41 +34,41 @@ import {
   updateSubscriptionRequest,
   getUserSubscriptionRequests,
 } from '../controllers/subscriptionController.js';
-import { authenticate, authorize } from '../middleware/auth.js';
+import { authenticate, requireRole } from '../middleware/auth.js';
 
 const router = express.Router();
 
 // Subscription Plan Routes
-router.get('/plans', authenticate, authorize('admin'), getAllPlans);
+router.get('/plans', authenticate, requireRole('admin'), getAllPlans);
 router.get('/plans/active', getActivePlans); // Public route for landing page
 router.get('/plans/:id', authenticate, getPlanById);
-router.post('/plans', authenticate, authorize('admin'), createPlan);
-router.put('/plans/:id', authenticate, authorize('admin'), updatePlan);
-router.put('/plans/:id/toggle-status', authenticate, authorize('admin'), togglePlanStatus);
+router.post('/plans', authenticate, requireRole('admin'), createPlan);
+router.put('/plans/:id', authenticate, requireRole('admin'), updatePlan);
+router.put('/plans/:id/toggle-status', authenticate, requireRole('admin'), togglePlanStatus);
 
 // User Subscription Routes
-router.get('/user', authenticate, authorize('admin'), getAllUserSubscriptions);
+router.get('/user', authenticate, requireRole('admin'), getAllUserSubscriptions);
 router.get('/user/:userId', authenticate, getUserSubscription);
-router.post('/assign', authenticate, authorize('admin'), assignSubscription);
+router.post('/assign', authenticate, requireRole('admin'), assignSubscription);
 router.put('/continue', authenticate, continueOwnSubscription); // User can continue their own subscription
-router.put('/:id/extend', authenticate, authorize('admin'), extendSubscription);
-router.put('/:id/change-plan', authenticate, authorize('admin'), changePlan);
-router.put('/:id/reset-browse', authenticate, authorize('admin'), resetBrowseCount);
-router.put('/:id/suspend', authenticate, authorize('admin'), suspendSubscription);
-router.put('/:id/reactivate', authenticate, authorize('admin'), reactivateSubscription);
-router.delete('/:id', authenticate, authorize('admin'), cancelSubscription);
+router.put('/:id/extend', authenticate, requireRole('admin'), extendSubscription);
+router.put('/:id/change-plan', authenticate, requireRole('admin'), changePlan);
+router.put('/:id/reset-browse', authenticate, requireRole('admin'), resetBrowseCount);
+router.put('/:id/suspend', authenticate, requireRole('admin'), suspendSubscription);
+router.put('/:id/reactivate', authenticate, requireRole('admin'), reactivateSubscription);
+router.delete('/:id', authenticate, requireRole('admin'), cancelSubscription);
 
 // Stats & Analytics Routes
 router.get('/user/:userId/usage', authenticate, getUsageStats);
-router.get('/stats', authenticate, authorize('admin'), getGlobalStats);
-router.get('/plan-stats', authenticate, authorize('admin'), getPlanStats);
-router.get('/filtered', authenticate, authorize('admin'), getFilteredSubscriptions);
+router.get('/stats', authenticate, requireRole('admin'), getGlobalStats);
+router.get('/plan-stats', authenticate, requireRole('admin'), getPlanStats);
+router.get('/filtered', authenticate, requireRole('admin'), getFilteredSubscriptions);
 
 // Subscription Requests Routes
 router.post('/requests', authenticate, createSubscriptionRequest);
-router.get('/requests', authenticate, authorize('admin'), getAllSubscriptionRequests);
+router.get('/requests', authenticate, requireRole('admin'), getAllSubscriptionRequests);
 router.get('/requests/my', authenticate, getUserSubscriptionRequests);
-router.put('/requests/:id', authenticate, authorize('admin'), updateSubscriptionRequest);
+router.put('/requests/:id', authenticate, requireRole('admin'), updateSubscriptionRequest);
 
 // Subscription Enforcement Routes
 router.get('/check/browse-limit', authenticate, checkBrowseLimit);

@@ -6,12 +6,12 @@ import {
   markAllAsRead,
   deleteNotification,
 } from '../controllers/notificationController.js';
-import { protect } from '../middleware/auth.js';
+import { authenticate } from '../middleware/auth.js';
 
 const router = express.Router();
 
 // All routes require authentication
-router.use(protect);
+router.use(authenticate);
 
 router.get('/', getNotifications);
 router.get('/unread-count', getUnreadCount);

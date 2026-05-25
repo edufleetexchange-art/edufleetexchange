@@ -11,7 +11,7 @@ import {
   updateApplicationStatus,
   rescheduleInterview,
 } from '../controllers/jobController.js';
-import { protect, restrictTo } from '../middleware/auth.js';
+import { authenticate, requireRole } from '../middleware/auth.js';
 
 const router = express.Router();
 
@@ -20,25 +20,25 @@ router.get('/featured', getAllJobs); // Alias for featured jobs
 router.get('/', getAllJobs);
 
 // Protected specific routes MUST come before :id
-router.get('/my/listings', protect, restrictTo('institute', 'sales', 'admin'), getInstituteJobs);
-router.get('/applications/list', protect, restrictTo('teacher', 'institute', 'sales', 'admin'), getApplications);
-router.get('/applications/my', protect, restrictTo('teacher'), getApplications); // Alias for teacher's own applications
+router.get('/my/listings', authenticate, requireRole(['institute', 'sales', 'admin']), getInstituteJobs);
+router.get('/applications/list', authenticate, requireRole(['teacher', 'institute', 'sales', 'admin']), getApplications);
+router.get('/applications/my', authenticate, requireRole('teacher'), getApplications); // Alias for teacher's own applications
 
 // Public dynamic route
 router.get('/:id', getJobById);
 
 // Protected CRUD operations
-router.post('/', protect, restrictTo('institute', 'sales', 'admin'), createJob);
-router.put('/:id', protect, restrictTo('institute', 'sales', 'admin'), updateJob);
-router.delete('/:id', protect, restrictTo('institute', 'sales', 'admin'), deleteJob);
+router.post('/', authenticate, requireRole(['institute', 'sales', 'admin']), createJob);
+router.put('/:id', authenticate, requireRole(['institute', 'sales', 'admin']), updateJob);
+router.delete('/:id', authenticate, requireRole(['institute', 'sales', 'admin']), deleteJob);
 
 // Teacher routes
-router.post('/:id/apply', protect, restrictTo('teacher'), applyToJob);
+router.post('/:id/apply', authenticate, requireRole('teacher'), applyToJob);
 
 // Application status update
-router.put('/applications/:id/status', protect, restrictTo('institute', 'admin'), updateApplicationStatus);
+router.put('/applications/:id/status', authenticate, requireRole(['institute', 'admin']), updateApplicationStatus);
 
 // Interview reschedule
-router.put('/applications/:id/reschedule', protect, restrictTo('institute', 'admin'), rescheduleInterview);
+router.put('/applications/:id/reschedule', authenticate, requireRole(['institute', 'admin']), rescheduleInterview);
 
 export default router;

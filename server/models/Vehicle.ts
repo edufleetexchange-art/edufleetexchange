@@ -111,7 +111,7 @@ const vehicleSchema = new Schema<IVehicle>(
     },
     sellerId: {
       type: Schema.Types.ObjectId,
-      ref: 'User',
+      ref: 'Account',
       required: true,
     },
     sellerName: {
@@ -131,7 +131,7 @@ const vehicleSchema = new Schema<IVehicle>(
     },
     assistedBy: {
       type: Schema.Types.ObjectId,
-      ref: 'User',
+      ref: 'Account',
     },
     status: {
       type: String,

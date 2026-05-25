@@ -17,7 +17,7 @@ import {
   updateSetting,
 } from '../controllers/adminController.js';
 import { approveSupplierStatus } from '../controllers/supplierController.js';
-import { authenticate, authorize } from '../middleware/auth.js';
+import { authenticate, requireRole } from '../middleware/auth.js';
 
 const router = express.Router();
 
@@ -25,12 +25,12 @@ const router = express.Router();
 router.use(authenticate);
 
 // Specific permissions for marketing and sales
-router.get('/users', authorize('admin', 'marketing', 'sales'), getAllUsers);
-router.post('/users', authorize('admin', 'sales'), createUser);
-router.put('/users/:id/status', authorize('admin', 'sales'), updateUserStatus);
+router.get('/users', requireRole(['admin', 'marketing', 'sales']), getAllUsers);
+router.post('/users', requireRole(['admin', 'sales']), createUser);
+router.put('/users/:id/status', requireRole(['admin', 'sales']), updateUserStatus);
 
 // Admin only routes
-router.use(authorize('admin'));
+router.use(requireRole('admin'));
 
 router.get('/stats', getDashboardStats);
 router.get('/pending', getPendingVehicles);

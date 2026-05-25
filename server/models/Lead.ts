@@ -31,8 +31,8 @@ const LeadSchema: Schema = new Schema({
     default: 'new' 
   },
   notes: { type: String, default: '' },
-  generatedBy: { type: Schema.Types.ObjectId, ref: 'User', required: true },
-  closedBy: { type: Schema.Types.ObjectId, ref: 'User' },
+  generatedBy: { type: Schema.Types.ObjectId, ref: 'Account', required: true },
+  closedBy: { type: Schema.Types.ObjectId, ref: 'Account' },
   isMarketingOnly: { type: Boolean, default: false }
 }, {
   timestamps: true

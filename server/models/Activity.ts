@@ -14,7 +14,7 @@ export interface IActivity extends Document {
 
 const ActivitySchema: Schema = new Schema({
   leadId: { type: Schema.Types.ObjectId, ref: 'Lead', required: true },
-  userId: { type: Schema.Types.ObjectId, ref: 'User', required: true },
+  userId: { type: Schema.Types.ObjectId, ref: 'Account', required: true },
   type: { 
     type: String, 
     enum: ['call', 'email', 'meeting', 'note', 'other'], 

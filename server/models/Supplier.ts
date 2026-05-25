@@ -130,7 +130,7 @@ const supplierSchema = new Schema<ISupplier>(
     },
     createdBy: {
       type: Schema.Types.ObjectId,
-      ref: 'User',
+      ref: 'Account',
       required: true,
     },
   },

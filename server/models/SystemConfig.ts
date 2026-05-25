@@ -38,7 +38,7 @@ const systemConfigSchema = new Schema<ISystemConfig>(
     },
     updatedBy: {
       type: Schema.Types.ObjectId,
-      ref: 'User',
+      ref: 'Account',
     },
   },
   {

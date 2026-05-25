@@ -1,5 +1,5 @@
 import express from 'express';
-import { authenticate, requireAdmin } from '../middleware/auth.js';
+import { authenticate, requireRole } from '../middleware/auth.js';
 import {
   // Ad management (Admin)
   getAllAds,
@@ -36,16 +36,16 @@ router.post('/requests', submitAdRequest);
 // ============ ADMIN ROUTES ============
 
 // Ad management
-router.get('/', authenticate, requireAdmin, getAllAds);
-router.get('/analytics', authenticate, requireAdmin, getAdAnalytics);
-router.get('/:id', authenticate, requireAdmin, getAdById);
-router.post('/', authenticate, requireAdmin, createAd);
-router.put('/:id', authenticate, requireAdmin, updateAd);
-router.delete('/:id', authenticate, requireAdmin, deleteAd);
+router.get('/', authenticate, requireRole('admin'), getAllAds);
+router.get('/analytics', authenticate, requireRole('admin'), getAdAnalytics);
+router.get('/:id', authenticate, requireRole('admin'), getAdById);
+router.post('/', authenticate, requireRole('admin'), createAd);
+router.put('/:id', authenticate, requireRole('admin'), updateAd);
+router.delete('/:id', authenticate, requireRole('admin'), deleteAd);
 
 // Ad request management
-router.get('/requests/all', authenticate, requireAdmin, getAllAdRequests);
-router.put('/requests/:id/status', authenticate, requireAdmin, updateAdRequestStatus);
-router.delete('/requests/:id', authenticate, requireAdmin, deleteAdRequest);
+router.get('/requests/all', authenticate, requireRole('admin'), getAllAdRequests);
+router.put('/requests/:id/status', authenticate, requireRole('admin'), updateAdRequestStatus);
+router.delete('/requests/:id', authenticate, requireRole('admin'), deleteAdRequest);
 
 export default router;
