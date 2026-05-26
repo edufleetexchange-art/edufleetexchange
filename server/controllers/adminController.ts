@@ -11,6 +11,7 @@ import Category from '../models/Category.js';
 import SystemConfig from '../models/SystemConfig.js';
 import { logAction } from '../utils/auditLogger.js';
 import { AuthRequest } from '../middleware/auth.js';
+import * as authService from '../services/authService.js';
 
 // @desc    Get admin dashboard stats
 // @route   GET /api/admin/stats
@@ -338,9 +339,15 @@ export const updateUserStatus = async (req: AuthRequest, res: Response): Promise
 // @access  Private (Admin)
 export const createUser = async (req: AuthRequest, res: Response): Promise<void> => {
   try {
-    const { name, email, password, role, instituteName, contactPerson, phone, employeeId, planId } = req.body;
+    const {
+      name, email, password, role,
+      instituteName, contactPerson, phone, employeeId, department, permissions,
+      experience, qualifications, subjects, bio, location, preferredLocation, isAvailable,
+      businessName, website, address,
+      planId,
+    } = req.body;
 
-    console.log('Creating user with data:', { name, email, role, instituteName, contactPerson, phone, employeeId: employeeId ? '[REDACTED]' : undefined, planId });
+    console.log('Creating user with data:', { name, email, role, planId });
 
     // Validate required fields
     if (!name || !email || !password || !role) {
@@ -363,7 +370,7 @@ export const createUser = async (req: AuthRequest, res: Response): Promise<void>
     }
 
     // Validate role
-    const validRoles = ['guest', 'institute', 'admin', 'teacher', 'vendor', 'marketing', 'sales'];
+    const validRoles = ['institute', 'admin', 'teacher', 'vendor', 'marketing', 'sales'];
     if (!validRoles.includes(role)) {
       res.status(400).json({
         success: false,
@@ -383,87 +390,81 @@ export const createUser = async (req: AuthRequest, res: Response): Promise<void>
       return;
     }
 
-    const userExists = await Account.findOne({ email: email.toLowerCase() });
+    let bundle: authService.Bundle;
 
-    if (userExists) {
-      res.status(400).json({
-        success: false,
-        error: 'User already exists with this email',
-        code: 'USER_EXISTS',
-      });
-      return;
-    }
-
-    // Check if employeeId is unique if provided and not empty (via StaffProfile)
-    const trimmedEmployeeId = employeeId?.trim() || undefined;
-
-    // Handle subscription if planId provided or find default free plan
-    let selectedPlan: any = null;
-    const internalRoles = ['admin', 'marketing', 'sales'];
-
-    if (!internalRoles.includes(role)) {
-      const planType = role === 'teacher' ? 'teacher' : role === 'vendor' ? 'vendor' : 'institute';
-
-      if (planId) {
-        selectedPlan = await SubscriptionPlan.findById(planId);
-      }
-
-      if (!selectedPlan) {
-        selectedPlan = await SubscriptionPlan.findOne({
-          planType,
-          price: 0,
-          isActive: true
+    switch (role) {
+      case 'institute':
+        bundle = await authService.adminCreateInstitute({
+          name: name.trim(),
+          email: email.toLowerCase().trim(),
+          password,
+          phone: phone?.trim(),
+          instituteName: instituteName || name.trim(),
+          contactPerson,
+          address: address || { street: 'N/A', city: 'N/A', state: 'N/A', pincode: '000000', country: 'India' },
+          planId,
+          isVerified: true,
         });
-      }
+        break;
+      case 'teacher':
+        bundle = await authService.adminCreateTeacher({
+          name: name.trim(),
+          email: email.toLowerCase().trim(),
+          password,
+          phone: phone?.trim(),
+          experience: experience ?? 0,
+          qualifications: qualifications ?? [],
+          subjects: subjects ?? [],
+          bio,
+          location,
+          preferredLocation,
+          isAvailable,
+          planId,
+          isVerified: true,
+        });
+        break;
+      case 'vendor':
+        bundle = await authService.adminCreateVendor({
+          name: name.trim(),
+          email: email.toLowerCase().trim(),
+          password,
+          phone: phone?.trim(),
+          businessName: businessName || name.trim(),
+          contactPerson,
+          website,
+          address,
+          planId,
+          isVerified: true,
+        });
+        break;
+      case 'admin':
+      case 'marketing':
+      case 'sales':
+        bundle = await authService.adminCreateStaff({
+          name: name.trim(),
+          email: email.toLowerCase().trim(),
+          password,
+          phone: phone?.trim(),
+          role,
+          employeeId: employeeId?.trim() || undefined,
+          department,
+          permissions,
+          isVerified: true,
+        });
+        break;
+      default:
+        res.status(400).json({ success: false, error: `Invalid role: ${role}`, code: 'VALIDATION_ERROR' });
+        return;
     }
 
-    // Build account data
-    const userData: Record<string, any> = {
-      name: name.trim(),
-      email: email.toLowerCase().trim(),
-      password,
-      role,
-      isActive: true,
-      isVerified: true,
-    };
-
-    if (phone?.trim()) userData.phone = phone.trim();
-
-    console.log('Final userData to create:', { ...userData, password: '[REDACTED]' });
-
-    const user = await Account.create(userData);
-
-    // Create subscription record if applicable
-    if (selectedPlan) {
-      const startDate = new Date();
-      const endDate = new Date();
-      endDate.setDate(endDate.getDate() + selectedPlan.duration);
-      await Subscription.create({
-        accountId: user._id,
-        planId: selectedPlan._id,
-        status: 'active',
-        paymentStatus: 'completed',
-        startDate,
-        endDate,
-        listingsUsed: 0,
-        listingsLimit: selectedPlan.features.maxVehicleListings || 0,
-        jobPostsUsed: 0,
-        jobPostsLimit: selectedPlan.features.maxJobPosts || 0,
-        browseCount: 0,
-        browseCountLimit: selectedPlan.features.maxBrowsesPerMonth || 0,
-        lastBrowseReset: startDate,
-        notes: planId ? `Assigned ${selectedPlan.displayName} plan on onboarding` : 'Default free plan assigned on onboarding',
-      });
-    }
-
-    console.log('User created successfully:', user._id);
+    console.log('User created successfully:', bundle.account._id);
 
     // Log the action for auditing
     if (req.account) {
       await logAction({
         user: req.account as any,
         action: 'CREATE_USER',
-        targetId: user._id.toString(),
+        targetId: bundle.account._id || bundle.account.id,
         targetType: 'User',
         details: `Created new user with role ${role} and email ${email}. Name: ${name}`,
         req
@@ -472,32 +473,20 @@ export const createUser = async (req: AuthRequest, res: Response): Promise<void>
 
     res.status(201).json({
       success: true,
-      data: {
-        _id: user._id,
-        name: user.name,
-        email: user.email,
-        role: user.role,
-        isActive: user.isActive,
-      },
+      data: bundle,
       message: 'User created successfully',
       timestamp: new Date().toISOString(),
     });
   } catch (error: any) {
     console.error('Create user error:', error);
-    console.error('Error name:', error.name);
-    console.error('Error message:', error.message);
-    console.error('Error code:', error.code);
-    if (error.stack) {
-      console.error('Error stack:', error.stack);
-    }
-    
+
     // Handle MongoDB duplicate key error
     if (error.code === 11000) {
       const keyPattern = error.keyPattern || {};
       const keyValue = error.keyValue || {};
       const field = Object.keys(keyPattern)[0] || 'field';
       const value = keyValue[field] || 'unknown';
-      res.status(400).json({
+      res.status(409).json({
         success: false,
         error: `A user with this ${field} (${value}) already exists`,
         code: 'DUPLICATE_ERROR',
@@ -505,7 +494,7 @@ export const createUser = async (req: AuthRequest, res: Response): Promise<void>
       });
       return;
     }
-    
+
     // Handle Mongoose validation errors
     if (error.name === 'ValidationError') {
       const messages = Object.values(error.errors).map((err: any) => err.message);
@@ -537,7 +526,7 @@ export const createUser = async (req: AuthRequest, res: Response): Promise<void>
       });
       return;
     }
-    
+
     res.status(500).json({
       success: false,
       error: error.message || 'Failed to create user',
