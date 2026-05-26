@@ -7,9 +7,11 @@ import Vehicle from '../models/Vehicle.js';
 import Job from '../models/Job.js';
 import Supplier from '../models/Supplier.js';
 import Lead from '../models/Lead.js';
+import VendorProfile from '../models/VendorProfile.js';
 import { AuthRequest } from '../middleware/auth.js';
 import { logAction } from '../utils/auditLogger.js';
 import mongoose from 'mongoose';
+import * as authService from '../services/authService.js';
 
 /**
  * @desc    Get sales dashboard stats
@@ -307,62 +309,74 @@ export const createSalesUser = async (req: AuthRequest, res: Response): Promise<
       return;
     }
 
-    const { name, email, password, role, instituteName, contactPerson, phone, planId } = req.body;
+    const {
+      name, email, password, role,
+      instituteName, contactPerson, phone, planId,
+      experience, qualifications, subjects, bio, location, preferredLocation, isAvailable,
+      address,
+    } = req.body;
 
-    // Check if user exists
-    const existingUser = await Account.findOne({ email });
-    if (existingUser) {
-      res.status(400).json({ success: false, error: 'User already exists' });
+    if (!name || !email || !password) {
+      res.status(400).json({ success: false, error: 'Name, email, and password are required', code: 'VALIDATION_ERROR' });
       return;
     }
 
-    const user = await Account.create({
-      name,
-      email,
-      password,
-      role: role || 'institute',
-      phone,
-      isVerified: true,
-    });
+    const effectiveRole: string = role || 'institute';
 
-    if (planId) {
-      const plan = await SubscriptionPlan.findById(planId);
-      if (plan) {
-        const startDate = new Date();
-        const endDate = new Date();
-        endDate.setDate(startDate.getDate() + (plan.duration || 30));
+    let bundle: authService.Bundle;
 
-        await Subscription.create({
-          accountId: user._id,
-          planId: plan._id,
-          status: 'active',
-          paymentStatus: 'completed',
-          startDate,
-          endDate,
-          listingsUsed: 0,
-          listingsLimit: plan.features.maxVehicleListings || 0,
-          jobPostsUsed: 0,
-          jobPostsLimit: plan.features.maxJobPosts || 0,
-          browseCount: 0,
-          browseCountLimit: plan.features.maxBrowsesPerMonth,
-          lastBrowseReset: startDate,
-          notes: `Created by Sales: ${req.account!.name}`,
+    switch (effectiveRole) {
+      case 'institute':
+        bundle = await authService.adminCreateInstitute({
+          name,
+          email,
+          password,
+          phone,
+          instituteName: instituteName || name,
+          contactPerson,
+          address: address || { street: 'N/A', city: 'N/A', state: 'N/A', pincode: '000000', country: 'India' },
+          planId,
+          isVerified: true,
         });
-      }
+        break;
+      case 'teacher':
+        bundle = await authService.adminCreateTeacher({
+          name,
+          email,
+          password,
+          phone,
+          experience: experience ?? 0,
+          qualifications: qualifications ?? [],
+          subjects: subjects ?? [],
+          bio,
+          location,
+          preferredLocation,
+          isAvailable,
+          planId,
+          isVerified: true,
+        });
+        break;
+      default:
+        res.status(400).json({ success: false, error: `Unsupported role for sales user creation: ${effectiveRole}`, code: 'VALIDATION_ERROR' });
+        return;
     }
 
     await logAction({
       user: req.account as any,
       action: 'CREATE_USER',
-      targetId: user._id.toString(),
+      targetId: bundle.account._id || bundle.account.id,
       targetType: 'User',
-      details: `Created ${role} user: ${email}`,
+      details: `Created ${effectiveRole} user: ${email}`,
       req
     });
 
-    res.status(201).json({ success: true, data: user });
-  } catch (error) {
+    res.status(201).json({ success: true, data: bundle });
+  } catch (error: any) {
     console.error('Create sales user error:', error);
+    if (error.code === 11000) {
+      res.status(409).json({ success: false, error: 'User already exists with this email', code: 'DUPLICATE_ERROR' });
+      return;
+    }
     res.status(500).json({ success: false, error: 'Server error' });
   }
 };
@@ -442,20 +456,43 @@ export const createSalesVendor = async (req: AuthRequest, res: Response): Promis
       website, certifications, yearsInBusiness, clientCount
     } = req.body;
 
-    // First create or find vendor user
-    let user = await Account.findOne({ email });
-    if (!user) {
-      user = await Account.create({
+    // Step 1: Find or create the vendor Account + VendorProfile + Subscription atomically
+    let accountId: mongoose.Types.ObjectId;
+
+    let existingAccount = await Account.findOne({ email });
+    if (existingAccount) {
+      // Upsert path: account already exists — ensure VendorProfile is present (backfill)
+      accountId = existingAccount._id as mongoose.Types.ObjectId;
+      const existingProfile = await VendorProfile.findOne({ accountId });
+      if (!existingProfile) {
+        await VendorProfile.create({
+          accountId,
+          businessName: companyName || name || email,
+          contactPerson: contactPerson || name,
+          phone,
+          website,
+          address,
+        });
+      }
+    } else {
+      // New vendor: create Account + VendorProfile + Subscription in a transaction
+      const bundle = await authService.adminCreateVendor({
         name: contactPerson || name,
         email,
         password: 'ChangeMe123!',
-        role: 'vendor',
         phone,
+        businessName: companyName || name,
+        contactPerson,
+        website,
+        address,
+        planId,
         isVerified: true,
       });
+      accountId = bundle.account._id || bundle.account.id;
+      existingAccount = await Account.findById(accountId);
     }
 
-    // Create supplier listing with all required fields
+    // Step 2: Create Supplier marketplace listing (separate from VendorProfile identity)
     const supplier = await Supplier.create({
       name: companyName || name,
       category: category || 'other',
@@ -475,12 +512,12 @@ export const createSalesVendor = async (req: AuthRequest, res: Response): Promis
       certifications,
       yearsInBusiness,
       clientCount,
-      createdBy: user._id,
+      createdBy: accountId,
       status: 'approved',
     });
 
-    // Assign subscription if provided
-    if (planId) {
+    // Step 3: Assign/update subscription for existing accounts (new accounts already get one from adminCreateVendor)
+    if (planId && existingAccount) {
       const plan = await SubscriptionPlan.findById(planId);
       if (plan) {
         const startDate = new Date();
@@ -488,7 +525,7 @@ export const createSalesVendor = async (req: AuthRequest, res: Response): Promis
         endDate.setDate(startDate.getDate() + (plan.duration || 30));
 
         await Subscription.findOneAndUpdate(
-          { accountId: user._id },
+          { accountId },
           {
             planId: plan._id,
             status: 'active',
@@ -519,8 +556,12 @@ export const createSalesVendor = async (req: AuthRequest, res: Response): Promis
     });
 
     res.status(201).json({ success: true, data: supplier });
-  } catch (error) {
+  } catch (error: any) {
     console.error('Create sales vendor error:', error);
+    if (error.code === 11000) {
+      res.status(409).json({ success: false, error: 'Vendor account already exists', code: 'DUPLICATE_ERROR' });
+      return;
+    }
     res.status(500).json({ success: false, error: 'Server error' });
   }
 };

@@ -41,6 +41,27 @@ function defaultSubscriptionFromPlan(accountId: mongoose.Types.ObjectId, plan: a
   };
 }
 
+/** Shared helper: find the plan (by planId or free fallback) and create a Subscription within a session. */
+async function createSubscriptionForAccount(
+  accountId: mongoose.Types.ObjectId,
+  planType: string,
+  planId: string | undefined,
+  session: mongoose.ClientSession,
+  notes?: string
+): Promise<any> {
+  let plan: any = null;
+  if (planId) {
+    plan = await SubscriptionPlan.findById(planId).session(session);
+  }
+  if (!plan) {
+    plan = await SubscriptionPlan.findOne({ planType, price: 0, isActive: true }).session(session);
+  }
+  const subData = defaultSubscriptionFromPlan(accountId, plan);
+  if (notes) subData.notes = notes;
+  const [subscription] = await Subscription.create([subData], { session });
+  return subscription;
+}
+
 function avatarFor(email: string) {
   return `https://api.dicebear.com/7.x/avataaars/svg?seed=${encodeURIComponent(email)}`;
 }
@@ -269,4 +290,244 @@ export async function login(email: string, password: string): Promise<Bundle> {
   const ok = await (account as any).comparePassword(password);
   if (!ok) throw new Error('Invalid credentials');
   return loadBundle(String(account._id));
+}
+
+// ─── Admin / Sales creation helpers ─────────────────────────────────────────
+
+export interface AdminCreateInstituteInput {
+  name: string;
+  email: string;
+  password: string;
+  phone?: string;
+  instituteName: string;
+  contactPerson?: string;
+  address: { street: string; city: string; state: string; pincode: string; country?: string };
+  planId?: string;
+  isVerified?: boolean;
+}
+
+export async function adminCreateInstitute(input: AdminCreateInstituteInput): Promise<Bundle> {
+  const session = await mongoose.startSession();
+  try {
+    return await session.withTransaction(async () => {
+      const [account] = await Account.create(
+        [
+          {
+            name: input.name,
+            email: input.email,
+            password: input.password,
+            role: 'institute',
+            phone: input.phone,
+            avatar: avatarFor(input.email),
+            isVerified: input.isVerified ?? true,
+            isActive: true,
+          },
+        ],
+        { session }
+      );
+      const [profile] = await InstituteProfile.create(
+        [
+          {
+            accountId: account._id,
+            instituteName: input.instituteName,
+            contactPerson: input.contactPerson,
+            address: input.address,
+          },
+        ],
+        { session }
+      );
+      const subscription = await createSubscriptionForAccount(
+        account._id,
+        'institute',
+        input.planId,
+        session,
+        input.planId ? 'Plan assigned on admin onboarding' : 'Free plan assigned on admin onboarding'
+      );
+      return {
+        account: account.toJSON(),
+        profile: profile.toJSON(),
+        subscription: subscription.toJSON(),
+      };
+    });
+  } finally {
+    session.endSession();
+  }
+}
+
+export interface AdminCreateTeacherInput {
+  name: string;
+  email: string;
+  password: string;
+  phone?: string;
+  experience: number;
+  qualifications: string[];
+  subjects: string[];
+  bio?: string;
+  location?: string;
+  preferredLocation?: string[];
+  isAvailable?: boolean;
+  planId?: string;
+  isVerified?: boolean;
+}
+
+export async function adminCreateTeacher(input: AdminCreateTeacherInput): Promise<Bundle> {
+  const session = await mongoose.startSession();
+  try {
+    return await session.withTransaction(async () => {
+      const [account] = await Account.create(
+        [
+          {
+            name: input.name,
+            email: input.email,
+            password: input.password,
+            role: 'teacher',
+            phone: input.phone,
+            avatar: avatarFor(input.email),
+            isVerified: input.isVerified ?? true,
+            isActive: true,
+          },
+        ],
+        { session }
+      );
+      const [profile] = await TeacherProfile.create(
+        [
+          {
+            accountId: account._id,
+            experience: input.experience,
+            qualifications: input.qualifications,
+            subjects: input.subjects,
+            bio: input.bio,
+            location: input.location,
+            preferredLocation: input.preferredLocation,
+            isAvailable: input.isAvailable ?? true,
+          },
+        ],
+        { session }
+      );
+      const subscription = await createSubscriptionForAccount(
+        account._id,
+        'teacher',
+        input.planId,
+        session,
+        input.planId ? 'Plan assigned on admin onboarding' : 'Free plan assigned on admin onboarding'
+      );
+      return {
+        account: account.toJSON(),
+        profile: profile.toJSON(),
+        subscription: subscription.toJSON(),
+      };
+    });
+  } finally {
+    session.endSession();
+  }
+}
+
+export interface AdminCreateVendorInput {
+  name: string;
+  email: string;
+  password: string;
+  phone?: string;
+  businessName: string;
+  contactPerson?: string;
+  website?: string;
+  address?: Partial<{ street: string; city: string; state: string; pincode: string; country: string }>;
+  planId?: string;
+  isVerified?: boolean;
+}
+
+export async function adminCreateVendor(input: AdminCreateVendorInput): Promise<Bundle> {
+  const session = await mongoose.startSession();
+  try {
+    return await session.withTransaction(async () => {
+      const [account] = await Account.create(
+        [
+          {
+            name: input.name,
+            email: input.email,
+            password: input.password,
+            role: 'vendor',
+            phone: input.phone,
+            avatar: avatarFor(input.email),
+            isVerified: input.isVerified ?? true,
+            isActive: true,
+          },
+        ],
+        { session }
+      );
+      const [profile] = await VendorProfile.create(
+        [
+          {
+            accountId: account._id,
+            businessName: input.businessName,
+            contactPerson: input.contactPerson,
+            phone: input.phone,
+            website: input.website,
+            address: input.address,
+          },
+        ],
+        { session }
+      );
+      const subscription = await createSubscriptionForAccount(
+        account._id,
+        'vendor',
+        input.planId,
+        session,
+        input.planId ? 'Plan assigned on admin onboarding' : 'Free plan assigned on admin onboarding'
+      );
+      return {
+        account: account.toJSON(),
+        profile: profile.toJSON(),
+        subscription: subscription.toJSON(),
+      };
+    });
+  } finally {
+    session.endSession();
+  }
+}
+
+export interface AdminCreateStaffInput {
+  name: string;
+  email: string;
+  password: string;
+  phone?: string;
+  role: 'admin' | 'marketing' | 'sales';
+  employeeId?: string;
+  department?: string;
+  permissions?: string[];
+  isVerified?: boolean;
+}
+
+export async function adminCreateStaff(input: AdminCreateStaffInput): Promise<Bundle> {
+  const session = await mongoose.startSession();
+  try {
+    return await session.withTransaction(async () => {
+      const [account] = await Account.create(
+        [
+          {
+            name: input.name,
+            email: input.email,
+            password: input.password,
+            role: input.role,
+            phone: input.phone,
+            avatar: avatarFor(input.email),
+            isVerified: input.isVerified ?? true,
+            isActive: true,
+          },
+        ],
+        { session }
+      );
+      const staffData: Record<string, any> = { accountId: account._id };
+      if (input.employeeId) staffData.employeeId = input.employeeId;
+      if (input.department) staffData.department = input.department;
+      if (input.permissions) staffData.permissions = input.permissions;
+      const [staffProfile] = await StaffProfile.create([staffData], { session });
+      return {
+        account: account.toJSON(),
+        profile: staffProfile.toJSON(),
+        subscription: null,
+      };
+    });
+  } finally {
+    session.endSession();
+  }
 }
