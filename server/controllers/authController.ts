@@ -5,6 +5,7 @@ import * as authService from '../services/authService.js';
 import { AuthRequest } from '../middleware/auth.js';
 import { createResetToken, consumeResetToken } from '../services/passwordResetService.js';
 import { sendPasswordResetEmail } from '../utils/email.js';
+import { logger } from '../config/logger.js';
 
 function setAuthCookie(res: Response, accountId: string, role: string) {
   const token = jwt.sign({ accountId, role }, JWT_CONFIG.secret, { expiresIn: JWT_CONFIG.expiresIn as any });
@@ -117,7 +118,7 @@ export const forgotPassword = async (req: Request, res: Response): Promise<void>
       timestamp: new Date().toISOString(),
     });
   } catch (err) {
-    console.error('[forgotPassword]', err);
+    logger.error({ err }, '[forgotPassword] unexpected error');
     res.status(200).json({
       success: true,
       message: 'If an account with that email exists, a reset link has been sent.',

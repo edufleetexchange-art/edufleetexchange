@@ -1,4 +1,5 @@
 import AuditLog from '../models/AuditLog.js';
+import { logger } from '../config/logger.js';
 
 interface AuditUser {
   _id: any;
@@ -38,6 +39,6 @@ export const logAction = async ({
       userAgent: req?.get('User-Agent'),
     });
   } catch (error) {
-    console.error('Audit logging failed:', error);
+    logger.error({ err: error }, 'Audit logging failed');
   }
 };
