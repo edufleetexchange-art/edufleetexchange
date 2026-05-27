@@ -4,7 +4,8 @@
  */
 
 import mongoose from 'mongoose';
-import { ENV, isProduction, isDevelopment } from './environment.js';
+import { ENV, isDevelopment } from './environment.js';
+import { logger } from './logger.js';
 
 // MongoDB connection options
 const mongooseOptions = {
@@ -17,34 +18,32 @@ const mongooseOptions = {
 
 export const connectDB = async () => {
   try {
-    console.log('🔌 Connecting to MongoDB...');
-    console.log(`🔗 URI: ${ENV.MONGODB_URI}`);
+    logger.info('Connecting to MongoDB...');
     const conn = await mongoose.connect(ENV.MONGODB_URI, mongooseOptions);
-    
-    console.log(`✓ MongoDB Connected: ${conn.connection.host}`);
-    console.log(`✓ Database Name: ${conn.connection.name}`);
-    
+
+    logger.info({ host: conn.connection.host, db: conn.connection.name }, 'MongoDB connected');
+
     // Handle connection events
     mongoose.connection.on('error', (err) => {
-      console.error('❌ MongoDB connection error:', err);
+      logger.error({ err }, 'MongoDB connection error');
     });
-    
+
     mongoose.connection.on('disconnected', () => {
-      console.log('⚠ MongoDB disconnected');
+      logger.warn('MongoDB disconnected');
     });
-    
+
     mongoose.connection.on('reconnected', () => {
-      console.log('✓ MongoDB reconnected');
+      logger.info('MongoDB reconnected');
     });
-    
+
     // Enable debug mode in development
     if (isDevelopment) {
       mongoose.set('debug', true);
     }
-    
+
     return conn;
   } catch (error) {
-    console.error('❌ Error connecting to MongoDB:', error);
+    logger.error({ err: error }, 'Error connecting to MongoDB');
     process.exit(1);
   }
 };
@@ -53,9 +52,8 @@ export const connectDB = async () => {
 export const disconnectDB = async () => {
   try {
     await mongoose.connection.close();
-    console.log('✓ MongoDB connection closed');
+    logger.info('MongoDB connection closed');
   } catch (error) {
-    console.error('❌ Error closing MongoDB connection:', error);
+    logger.error({ err: error }, 'Error closing MongoDB connection');
   }
 };
-

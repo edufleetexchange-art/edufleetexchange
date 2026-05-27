@@ -8,12 +8,19 @@ import dotenv from 'dotenv';
 import * as path from 'path';
 import * as fs from 'fs';
 import { fileURLToPath } from 'url';
+import type { IncomingMessage, ServerResponse } from 'http';
 
 // Load environment variables first
 dotenv.config();
 
+// Sentry must be initialised before any other imports that might throw
+import { initSentry, Sentry } from './config/sentry.js';
+initSentry();
+
 // Import configurations
 import { ENV, connectDB, disconnectDB, configureApp } from './config/index.js';
+import { pinoHttp } from 'pino-http';
+import { logger } from './config/logger.js';
 
 // Import routes
 import authRoutes from './routes/auth.js';
@@ -35,12 +42,31 @@ import accountRoutes from './routes/accounts.js';
 import teacherRoutes from './routes/teachers.js';
 import instituteRoutes from './routes/institutes.js';
 import vendorRoutes from './routes/vendors.js';
+import reportRoutes from './routes/reports.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 // Initialize Express app
 const app: Application = express();
+
+// HTTP request logger (before routes)
+app.use(pinoHttp({
+  logger,
+  customLogLevel: (_req: IncomingMessage, res: ServerResponse, err?: Error) => {
+    if (err || res.statusCode >= 500) return 'error';
+    if (res.statusCode >= 400) return 'warn';
+    return 'info';
+  },
+  serializers: {
+    req: (req: IncomingMessage & { url?: string; method?: string; id?: unknown }) => ({
+      method: req.method,
+      url: req.url,
+      id: req.id,
+    }),
+    res: (res: { statusCode: number }) => ({ statusCode: res.statusCode }),
+  },
+}));
 
 // Apply app configuration (middleware, security headers, etc.)
 configureApp(app);
@@ -52,7 +78,7 @@ await connectDB();
 const uploadsDir = path.join(__dirname, '../uploads');
 if (!fs.existsSync(uploadsDir)) {
   fs.mkdirSync(uploadsDir, { recursive: true });
-  console.log('✓ Created uploads directory');
+  logger.info('Created uploads directory');
 }
 
 // Serve static files (uploads)
@@ -90,10 +116,11 @@ app.use(`${apiPrefix}/accounts`, accountRoutes);
 app.use(`${apiPrefix}/teachers`, teacherRoutes);
 app.use(`${apiPrefix}/institutes`, instituteRoutes);
 app.use(`${apiPrefix}/vendors`, vendorRoutes);
+app.use(`${apiPrefix}/reports`, reportRoutes);
 
 // 404 handler for undefined routes
 app.use((req: Request, res: Response) => {
-  console.warn(`⚠ 404 Not Found: ${req.method} ${req.originalUrl} (path: ${req.path})`);
+  logger.warn({ method: req.method, url: req.originalUrl }, '404 Not Found');
   res.status(404).json({
     success: false,
     error: 'Route not found',
@@ -103,10 +130,13 @@ app.use((req: Request, res: Response) => {
   });
 });
 
+// Sentry error handler must come BEFORE any other error handler
+Sentry.setupExpressErrorHandler(app);
+
 // Global error handler
 app.use((err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {
-  console.error('❌ Server Error:', err);
-  
+  logger.error({ err }, 'Server Error');
+
   // Handle specific error types
   if (err.name === 'ValidationError') {
     return res.status(400).json({
@@ -116,7 +146,7 @@ app.use((err: any, req: express.Request, res: express.Response, next: express.Ne
       details: err.message,
     });
   }
-  
+
   if (err.name === 'UnauthorizedError') {
     return res.status(401).json({
       success: false,
@@ -124,7 +154,7 @@ app.use((err: any, req: express.Request, res: express.Response, next: express.Ne
       code: 'UNAUTHORIZED',
     });
   }
-  
+
   // Default error response
   res.status(err.status || 500).json({
     success: false,
@@ -160,24 +190,25 @@ const server = app.listen(ENV.PORT, () => {
   console.log(`  ${apiPrefix}/teachers`);
   console.log(`  ${apiPrefix}/institutes`);
   console.log(`  ${apiPrefix}/vendors`);
+  console.log(`  ${apiPrefix}/reports`);
 });
 
 // Graceful shutdown
 const gracefulShutdown = async (signal: string) => {
-  console.log(`\n⚠ ${signal} received. Starting graceful shutdown...`);
-  
+  logger.warn({ signal }, 'Signal received. Starting graceful shutdown...');
+
   server.close(async () => {
-    console.log('✓ HTTP server closed');
-    
+    logger.info('HTTP server closed');
+
     await disconnectDB();
-    
-    console.log('✓ Graceful shutdown complete');
+
+    logger.info('Graceful shutdown complete');
     process.exit(0);
   });
-  
+
   // Force shutdown after 10 seconds
   setTimeout(() => {
-    console.error('❌ Forced shutdown after timeout');
+    logger.error('Forced shutdown after timeout');
     process.exit(1);
   }, 10000);
 };
