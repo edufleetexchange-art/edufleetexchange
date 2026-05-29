@@ -43,6 +43,7 @@ import teacherRoutes from './routes/teachers.js';
 import instituteRoutes from './routes/institutes.js';
 import vendorRoutes from './routes/vendors.js';
 import reportRoutes from './routes/reports.js';
+import recommendationRoutes from './routes/recommendations.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -117,6 +118,7 @@ app.use(`${apiPrefix}/teachers`, teacherRoutes);
 app.use(`${apiPrefix}/institutes`, instituteRoutes);
 app.use(`${apiPrefix}/vendors`, vendorRoutes);
 app.use(`${apiPrefix}/reports`, reportRoutes);
+app.use(`${apiPrefix}/recommendations`, recommendationRoutes);
 
 // 404 handler for undefined routes
 app.use((req: Request, res: Response) => {
@@ -191,6 +193,7 @@ const server = app.listen(ENV.PORT, () => {
   console.log(`  ${apiPrefix}/institutes`);
   console.log(`  ${apiPrefix}/vendors`);
   console.log(`  ${apiPrefix}/reports`);
+  console.log(`  ${apiPrefix}/recommendations  (GET /jobs, GET /teachers)`);
 });
 
 // Graceful shutdown
