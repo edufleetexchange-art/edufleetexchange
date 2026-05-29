@@ -18,6 +18,12 @@ import {
 } from '../controllers/adminController.js';
 import { approveSupplierStatus } from '../controllers/supplierController.js';
 import { authenticate, requireRole } from '../middleware/auth.js';
+import {
+  summary as metricsSummary,
+  signups as metricsSignups,
+  approvalFunnel as metricsApprovalFunnel,
+  activeUsers as metricsActiveUsers,
+} from '../controllers/metricsController.js';
 
 const router = express.Router();
 
@@ -49,5 +55,11 @@ router.delete('/categories/:id', deleteCategory);
 // System Settings
 router.get('/settings', getSettings);
 router.put('/settings/:key', updateSetting);
+
+// Metrics endpoints (admin-only, authenticate already applied above via router.use)
+router.get('/metrics/summary', metricsSummary);
+router.get('/metrics/signups', metricsSignups);
+router.get('/metrics/approval-funnel', metricsApprovalFunnel);
+router.get('/metrics/active-users', metricsActiveUsers);
 
 export default router;
