@@ -25,4 +25,4 @@ const SubscriptionRequestSchema: Schema = new Schema(
   { timestamps: true }
 );
 
-export default mongoose.model<ISubscriptionRequest>('SubscriptionRequest', SubscriptionRequestSchema);
+export default (mongoose.models.SubscriptionRequest as mongoose.Model<ISubscriptionRequest>) ?? mongoose.model<ISubscriptionRequest>('SubscriptionRequest', SubscriptionRequestSchema);

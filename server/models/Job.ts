@@ -162,4 +162,4 @@ jobSchema.index({ department: 1 });
 jobSchema.index({ 'location.city': 1, 'location.state': 1 });
 jobSchema.index({ subjects: 1 });
 
-export default mongoose.model<IJob>('Job', jobSchema);
+export default (mongoose.models.Job as mongoose.Model<IJob>) ?? mongoose.model<IJob>('Job', jobSchema);

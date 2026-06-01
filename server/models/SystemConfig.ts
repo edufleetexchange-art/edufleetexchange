@@ -46,6 +46,6 @@ const systemConfigSchema = new Schema<ISystemConfig>(
   }
 );
 
-const SystemConfig = mongoose.model<ISystemConfig>('SystemConfig', systemConfigSchema);
+const SystemConfig = (mongoose.models.SystemConfig as mongoose.Model<ISystemConfig>) ?? mongoose.model<ISystemConfig>('SystemConfig', systemConfigSchema);
 
 export default SystemConfig;

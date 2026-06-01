@@ -144,4 +144,4 @@ supplierSchema.index({ category: 1, status: 1 });
 supplierSchema.index({ isVerified: 1, status: 1 });
 supplierSchema.index({ createdBy: 1 });
 
-export default mongoose.model<ISupplier>('Supplier', supplierSchema);
+export default (mongoose.models.Supplier as mongoose.Model<ISupplier>) ?? mongoose.model<ISupplier>('Supplier', supplierSchema);

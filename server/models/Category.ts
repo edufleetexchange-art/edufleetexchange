@@ -56,6 +56,6 @@ const categorySchema = new Schema<ICategory>(
 categorySchema.index({ slug: 1, type: 1 }, { unique: true });
 categorySchema.index({ type: 1, isActive: 1 });
 
-const Category = mongoose.model<ICategory>('Category', categorySchema);
+const Category = (mongoose.models.Category as mongoose.Model<ICategory>) ?? mongoose.model<ICategory>('Category', categorySchema);
 
 export default Category;
