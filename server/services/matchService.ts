@@ -83,3 +83,92 @@ export async function recommendTeachersForJob(jobId: string, limit = 10) {
     .sort((a, b) => b.score - a.score)
     .slice(0, limit);
 }
+
+// ============================================================
+// COLLABORATIVE FILTERING (D2)
+// ============================================================
+
+// For a teacher, find teachers who share at least one job application,
+// then rank jobs those teachers applied to.
+export async function collaborativeJobsForTeacher(accountId: string, limit = 10) {
+  const Application = getApplicationModel();
+  const Job = getJobModel();
+
+  // 1. Jobs this teacher applied to.
+  const myApps = await Application.find({ teacherId: accountId }).select('jobId').lean();
+  const myJobIds = myApps.map((a: any) => a.jobId);
+  if (myJobIds.length === 0) return [];
+
+  // 2. Find other teachers who applied to any of those jobs.
+  const peerApps = await Application.find({
+    jobId: { $in: myJobIds },
+    teacherId: { $ne: accountId },
+  }).select('teacherId').lean();
+  const peerIds = Array.from(new Set(peerApps.map((a: any) => String(a.teacherId))));
+  if (peerIds.length === 0) return [];
+
+  // 3. Find jobs those peers applied to, excluding myJobIds (don't re-suggest).
+  const peerJobApps = await Application.find({
+    teacherId: { $in: peerIds },
+    jobId: { $nin: myJobIds },
+  }).select('jobId').lean();
+
+  // 4. Aggregate: count how often each job appears (co-application frequency = score).
+  const jobCount = new Map<string, number>();
+  for (const a of peerJobApps) {
+    const k = String((a as any).jobId);
+    jobCount.set(k, (jobCount.get(k) ?? 0) + 1);
+  }
+  if (jobCount.size === 0) return [];
+
+  // 5. Fetch the top-N jobs, only active ones.
+  const topJobIds = [...jobCount.entries()]
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, limit * 2)  // overfetch in case some are now closed
+    .map(([id]) => id);
+  const jobs = await Job.find({ _id: { $in: topJobIds }, status: 'active' });
+
+  // 6. Merge counts back into jobs, sort by score desc, truncate.
+  return jobs
+    .map((j: any) => ({ job: j.toJSON(), score: jobCount.get(String(j._id)) ?? 0, reason: 'peers' as const }))
+    .sort((a, b) => b.score - a.score)
+    .slice(0, limit);
+}
+
+// Content-based: jobs sharing subjects/department with jobs the teacher already applied to.
+export async function similarJobsForTeacher(accountId: string, limit = 10) {
+  const Application = getApplicationModel();
+  const Job = getJobModel();
+
+  const myApps = await Application.find({ teacherId: accountId }).select('jobId').lean();
+  const myJobIds = myApps.map((a: any) => a.jobId);
+  if (myJobIds.length === 0) return [];
+
+  const myJobs = await Job.find({ _id: { $in: myJobIds } }).select('subjects department').lean();
+  const mySubjects = Array.from(new Set((myJobs as any[]).flatMap((j: any) => j.subjects ?? [])));
+  const myDepartments = Array.from(new Set((myJobs as any[]).map((j: any) => j.department).filter(Boolean)));
+
+  if (mySubjects.length === 0 && myDepartments.length === 0) return [];
+
+  // Find active jobs that share at least one subject or department, excluding already-applied jobs.
+  const orClauses: any[] = [];
+  if (mySubjects.length) orClauses.push({ subjects: { $in: mySubjects } });
+  if (myDepartments.length) orClauses.push({ department: { $in: myDepartments } });
+
+  const candidates = await Job.find({
+    status: 'active',
+    _id: { $nin: myJobIds },
+    $or: orClauses,
+  });
+
+  // Score by overlap count.
+  return candidates
+    .map((j: any) => {
+      const subjOverlap = (j.subjects ?? []).filter((s: any) => mySubjects.includes(s)).length;
+      const deptOverlap = myDepartments.includes(j.department) ? 1 : 0;
+      return { job: j.toJSON(), score: subjOverlap * 2 + deptOverlap, reason: 'similar' as const };
+    })
+    .filter(x => x.score > 0)
+    .sort((a, b) => b.score - a.score)
+    .slice(0, limit);
+}

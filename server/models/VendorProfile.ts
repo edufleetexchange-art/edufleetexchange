@@ -13,6 +13,11 @@ export interface IVendorProfile extends Document {
     pincode?: string;
     country?: string;
   };
+  verification?: {
+    status: 'none' | 'pending' | 'verified' | 'rejected';
+    verifiedAt?: Date;
+    verifiedBy?: mongoose.Types.ObjectId;
+  };
   createdAt: Date;
   updatedAt: Date;
 }
@@ -30,6 +35,11 @@ const schema = new Schema<IVendorProfile>(
       state: String,
       pincode: String,
       country: { type: String, default: 'India' },
+    },
+    verification: {
+      status: { type: String, enum: ['none', 'pending', 'verified', 'rejected'], default: 'none' },
+      verifiedAt: Date,
+      verifiedBy: { type: Schema.Types.ObjectId, ref: 'Account' },
     },
   },
   {
