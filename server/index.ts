@@ -45,6 +45,7 @@ import vendorRoutes from './routes/vendors.js';
 import reportRoutes from './routes/reports.js';
 import recommendationRoutes from './routes/recommendations.js';
 import reviewRoutes from './routes/reviews.js';
+import verificationRoutes from './routes/verifications.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -121,6 +122,7 @@ app.use(`${apiPrefix}/vendors`, vendorRoutes);
 app.use(`${apiPrefix}/reports`, reportRoutes);
 app.use(`${apiPrefix}/recommendations`, recommendationRoutes);
 app.use(`${apiPrefix}/reviews`, reviewRoutes);
+app.use(`${apiPrefix}/verifications`, verificationRoutes);
 
 // 404 handler for undefined routes
 app.use((req: Request, res: Response) => {
@@ -197,6 +199,7 @@ const server = app.listen(ENV.PORT, () => {
   console.log(`  ${apiPrefix}/reports`);
   console.log(`  ${apiPrefix}/recommendations  (GET /jobs, GET /teachers)`);
   console.log(`  ${apiPrefix}/reviews         (GET /, GET /stats, POST /, PATCH /:id, DELETE /:id)`);
+  console.log(`  ${apiPrefix}/verifications   (POST /, GET /me, GET /admin, PATCH /admin/:id)`);
 });
 
 // Graceful shutdown
