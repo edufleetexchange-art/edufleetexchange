@@ -173,4 +173,4 @@ vehicleSchema.index({ manufacturer: 1, vehicleModel: 1 });
 vehicleSchema.index({ isPriority: 1, status: 1 });
 vehicleSchema.index({ createdAt: -1 });
 
-export default mongoose.model<IVehicle>('Vehicle', vehicleSchema);600
+export default (mongoose.models.Vehicle as mongoose.Model<IVehicle>) ?? mongoose.model<IVehicle>('Vehicle', vehicleSchema)

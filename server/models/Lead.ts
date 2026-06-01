@@ -38,4 +38,4 @@ const LeadSchema: Schema = new Schema({
   timestamps: true
 });
 
-export default mongoose.model<ILead>('Lead', LeadSchema);
+export default (mongoose.models.Lead as mongoose.Model<ILead>) ?? mongoose.model<ILead>('Lead', LeadSchema);

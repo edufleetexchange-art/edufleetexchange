@@ -181,5 +181,5 @@ adSchema.index({ status: 1, placement: 1 });
 adSchema.index({ startDate: 1, endDate: 1 });
 adRequestSchema.index({ status: 1, createdAt: -1 });
 
-export const Ad = mongoose.model<IAd>('Ad', adSchema);
-export const AdRequest = mongoose.model<IAdRequest>('AdRequest', adRequestSchema);
+export const Ad = (mongoose.models.Ad as mongoose.Model<IAd>) ?? mongoose.model<IAd>('Ad', adSchema);
+export const AdRequest = (mongoose.models.AdRequest as mongoose.Model<IAdRequest>) ?? mongoose.model<IAdRequest>('AdRequest', adRequestSchema);

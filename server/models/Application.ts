@@ -106,4 +106,4 @@ applicationSchema.index({ jobId: 1, teacherId: 1 }, { unique: true });
 applicationSchema.index({ instituteId: 1 });
 applicationSchema.index({ teacherId: 1 });
 
-export default mongoose.model<IApplication>('Application', applicationSchema);
+export default (mongoose.models.Application as mongoose.Model<IApplication>) ?? mongoose.model<IApplication>('Application', applicationSchema);
