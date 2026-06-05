@@ -23,6 +23,7 @@ export interface IApplication extends Document {
   };
   rejectedAt?: Date;
   acceptedAt?: Date;
+  submittedByConsultantId?: mongoose.Types.ObjectId;
   statusHistory: Array<{
     status: string;
     changedAt: Date;
@@ -87,6 +88,10 @@ const applicationSchema = new Schema<IApplication>(
     },
     rejectedAt: Date,
     acceptedAt: Date,
+    submittedByConsultantId: {
+      type: Schema.Types.ObjectId,
+      ref: 'Account',
+    },
     statusHistory: [{
       status: String,
       changedAt: Date,
@@ -105,5 +110,6 @@ const applicationSchema = new Schema<IApplication>(
 applicationSchema.index({ jobId: 1, teacherId: 1 }, { unique: true });
 applicationSchema.index({ instituteId: 1 });
 applicationSchema.index({ teacherId: 1 });
+applicationSchema.index({ submittedByConsultantId: 1 });
 
 export default (mongoose.models.Application as mongoose.Model<IApplication>) ?? mongoose.model<IApplication>('Application', applicationSchema);
