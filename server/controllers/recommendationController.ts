@@ -36,6 +36,28 @@ export const collaborativeJobsForMe = async (req: AuthRequest, res: Response): P
   });
 };
 
+// GET /api/recommendations/jobs-for-roster?limit=20  — auth required, must be consultant
+export const jobsForConsultantRoster = async (req: AuthRequest, res: Response): Promise<void> => {
+  if (req.account?.role !== 'consultant') {
+    res.status(403).json({ success: false, error: 'Forbidden', code: 'FORBIDDEN' });
+    return;
+  }
+  const limit = Math.min(50, Math.max(1, parseInt((req.query.limit as string) ?? '20', 10)));
+  const items = await matchService.recommendJobsForConsultantRoster(String(req.account.id), limit);
+  res.status(200).json({ success: true, data: { items, total: items.length }, timestamp: new Date().toISOString() });
+};
+
+// GET /api/recommendations/teachers-for-job/:jobId?limit=20 — auth required, must be consultant
+export const teachersForJobConsultant = async (req: AuthRequest, res: Response): Promise<void> => {
+  if (req.account?.role !== 'consultant') {
+    res.status(403).json({ success: false, error: 'Forbidden', code: 'FORBIDDEN' });
+    return;
+  }
+  const limit = Math.min(50, Math.max(1, parseInt((req.query.limit as string) ?? '20', 10)));
+  const items = await matchService.recommendTeachersFromRosterForJob(String(req.account.id), req.params.jobId, limit);
+  res.status(200).json({ success: true, data: { items, total: items.length }, timestamp: new Date().toISOString() });
+};
+
 // GET /api/recommendations/teachers?jobId=X&limit=10  — auth required, must be institute
 export const recommendTeachers = async (req: AuthRequest, res: Response): Promise<void> => {
   try {
