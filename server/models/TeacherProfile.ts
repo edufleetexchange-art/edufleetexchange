@@ -11,6 +11,13 @@ export interface ITeacherProfile extends Document {
   currentInstitute?: string;
   achievements?: string[];
   isAvailable: boolean;
+  consultantConsent?: {
+    granted: boolean;
+    grantedAt?: Date;
+    revokedAt?: Date;
+    scope: 'any' | 'specific';
+    allowedConsultantAccountIds?: mongoose.Types.ObjectId[];
+  };
   createdAt: Date;
   updatedAt: Date;
 }
@@ -27,6 +34,13 @@ const schema = new Schema<ITeacherProfile>(
     currentInstitute: { type: String, trim: true },
     achievements: { type: [String], default: [] },
     isAvailable: { type: Boolean, default: true },
+    consultantConsent: {
+      granted: { type: Boolean, default: false },
+      grantedAt: Date,
+      revokedAt: Date,
+      scope: { type: String, enum: ['any', 'specific'], default: 'any' },
+      allowedConsultantAccountIds: [{ type: Schema.Types.ObjectId, ref: 'Account' }],
+    },
   },
   {
     timestamps: true,
