@@ -46,6 +46,7 @@ import reportRoutes from './routes/reports.js';
 import recommendationRoutes from './routes/recommendations.js';
 import reviewRoutes from './routes/reviews.js';
 import verificationRoutes from './routes/verifications.js';
+import rosterRoutes from './routes/roster.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -123,6 +124,7 @@ app.use(`${apiPrefix}/reports`, reportRoutes);
 app.use(`${apiPrefix}/recommendations`, recommendationRoutes);
 app.use(`${apiPrefix}/reviews`, reviewRoutes);
 app.use(`${apiPrefix}/verifications`, verificationRoutes);
+app.use(`${apiPrefix}/roster`, rosterRoutes);
 
 // 404 handler for undefined routes
 app.use((req: Request, res: Response) => {
