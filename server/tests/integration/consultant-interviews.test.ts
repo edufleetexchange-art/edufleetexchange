@@ -89,7 +89,7 @@ describe('POST /api/interviews', () => {
     expect(res.status).toBe(201);
     expect(res.body.data.status).toBe('scheduled');
     expect(res.body.data.round).toBe(1);
-    const notifs = await Notification.find({ 'metadata.event': 'interview_invitation' });
+    const notifs = await Notification.find({ type: 'interview_invitation' });
     const ids = notifs.map((n) => String((n as any).userId)).sort();
     expect(ids).toEqual([teacherId, instituteId, consultantId].sort());
   });

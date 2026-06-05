@@ -554,11 +554,37 @@ export const getApplications = async (req: AuthRequest, res: Response) => {
     const applications = await Application.find(query)
       .sort('-appliedDate')
       .populate('teacherId', 'name email phone location experience qualifications subjects avatar bio')
-      .populate('jobId', 'title department location salary employmentType');
+      .populate('jobId', 'title department location salary employmentType')
+      .populate('submittedByConsultantId', 'name email phone');
+
+    // Enrich consultant-submitted apps with the consultant's agencyName.
+    const consultantIds = applications
+      .map((a: any) => a.submittedByConsultantId?._id ?? a.submittedByConsultantId)
+      .filter(Boolean);
+    let profileByAccountId = new Map<string, any>();
+    if (consultantIds.length) {
+      const ConsultantProfile = (await import('../models/ConsultantProfile.js')).default;
+      const profiles = await ConsultantProfile.find({ accountId: { $in: consultantIds } });
+      profileByAccountId = new Map(profiles.map((p: any) => [String(p.accountId), p]));
+    }
+    const enriched = applications.map((a: any) => {
+      if (!a.submittedByConsultantId) return a;
+      const consultantId = String(a.submittedByConsultantId?._id ?? a.submittedByConsultantId);
+      const cp = profileByAccountId.get(consultantId);
+      const json: any = a.toJSON ? a.toJSON() : a;
+      json.submittedByConsultantId = {
+        id: consultantId,
+        name: a.submittedByConsultantId.name,
+        email: a.submittedByConsultantId.email,
+        phone: a.submittedByConsultantId.phone,
+        agencyName: cp?.agencyName,
+      };
+      return json;
+    });
 
     res.status(200).json({
       success: true,
-      data: applications,
+      data: enriched,
     });
   } catch (error: any) {
     res.status(500).json({

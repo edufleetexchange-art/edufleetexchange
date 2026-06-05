@@ -18,12 +18,9 @@ export interface ScheduleInterviewInput {
   round?: number;
 }
 
-// Notification.type is constrained to a small enum that does not yet include
-// 'interview_invitation'. Until Task 32 extends the enum, we route interview
-// events through 'message' and disambiguate via metadata.event.
 async function notifyParticipants(args: {
   accountIds: string[];
-  event: string;
+  event: 'interview_invitation' | 'interview_rescheduled' | 'interview_canceled';
   title: string;
   message: string;
   metadata?: Record<string, any>;
@@ -31,7 +28,7 @@ async function notifyParticipants(args: {
   const unique = Array.from(new Set(args.accountIds.filter(Boolean)));
   const docs = unique.map((id) => ({
     userId: new mongoose.Types.ObjectId(id),
-    type: 'message' as const,
+    type: 'interview_invitation' as const,
     title: args.title,
     message: args.message,
     metadata: { event: args.event, ...(args.metadata ?? {}) },

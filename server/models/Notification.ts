@@ -2,11 +2,11 @@ import mongoose, { Schema, Document } from 'mongoose';
 
 export interface INotification extends Document {
   userId: mongoose.Types.ObjectId;
-  type: 
-    | 'approval' 
-    | 'rejection' 
-    | 'priority' 
-    | 'message' 
+  type:
+    | 'approval'
+    | 'rejection'
+    | 'priority'
+    | 'message'
     | 'system'
     | 'listing_approved'
     | 'listing_rejected'
@@ -19,7 +19,12 @@ export interface INotification extends Document {
     | 'info'
     | 'success'
     | 'warning'
-    | 'error';
+    | 'error'
+    | 'consultant_added_to_roster'
+    | 'consultant_consent_revoked'
+    | 'placement_stage_changed'
+    | 'interview_invitation'
+    | 'placement_completed';
   title: string;
   message: string;
   priority?: 'low' | 'medium' | 'high';
@@ -41,10 +46,10 @@ const notificationSchema = new Schema<INotification>(
       type: String,
       required: true,
       enum: [
-        'approval', 
-        'rejection', 
-        'priority', 
-        'message', 
+        'approval',
+        'rejection',
+        'priority',
+        'message',
         'system',
         'listing_approved',
         'listing_rejected',
@@ -57,7 +62,12 @@ const notificationSchema = new Schema<INotification>(
         'info',
         'success',
         'warning',
-        'error'
+        'error',
+        'consultant_added_to_roster',
+        'consultant_consent_revoked',
+        'placement_stage_changed',
+        'interview_invitation',
+        'placement_completed',
       ],
     },
     title: {
