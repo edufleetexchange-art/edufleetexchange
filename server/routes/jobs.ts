@@ -32,8 +32,8 @@ router.post('/', authenticate, requireRole(['institute', 'sales', 'admin']), cre
 router.put('/:id', authenticate, requireRole(['institute', 'sales', 'admin']), updateJob);
 router.delete('/:id', authenticate, requireRole(['institute', 'sales', 'admin']), deleteJob);
 
-// Teacher routes
-router.post('/:id/apply', authenticate, requireRole('teacher'), applyToJob);
+// Apply (teacher self, or consultant on teacher's behalf)
+router.post('/:id/apply', authenticate, requireRole(['teacher', 'consultant']), applyToJob);
 
 // Application status update
 router.put('/applications/:id/status', authenticate, requireRole(['institute', 'admin']), updateApplicationStatus);
