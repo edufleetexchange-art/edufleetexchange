@@ -1,5 +1,6 @@
 import { Request, Response } from 'express';
 import TeacherProfile from '../models/TeacherProfile.js';
+import { AuthRequest } from '../middleware/auth.js';
 
 export const listTeachers = async (req: Request, res: Response): Promise<void> => {
   const { subject, minExperience, location, page = 1, pageSize = 20 } = req.query as any;
@@ -35,4 +36,27 @@ export const getTeacher = async (req: Request, res: Response): Promise<void> => 
     return;
   }
   res.status(200).json({ success: true, data: profile, timestamp: new Date().toISOString() });
+};
+
+export const patchConsultantConsent = async (req: AuthRequest, res: Response): Promise<void> => {
+  if (req.account?.role !== 'teacher') {
+    res.status(403).json({ success: false, error: 'Forbidden', code: 'FORBIDDEN' });
+    return;
+  }
+  const profile = await TeacherProfile.findOne({ accountId: req.account.id });
+  if (!profile) {
+    res.status(404).json({ success: false, error: 'Profile not found', code: 'NOT_FOUND' });
+    return;
+  }
+  const { granted, scope, allowedConsultantAccountIds } = req.body || {};
+  const prev = profile.consultantConsent ?? { granted: false, scope: 'any' as const };
+  profile.consultantConsent = {
+    granted: !!granted,
+    grantedAt: granted ? new Date() : prev.grantedAt,
+    revokedAt: !granted && prev.granted ? new Date() : prev.revokedAt,
+    scope: scope ?? prev.scope ?? 'any',
+    allowedConsultantAccountIds: allowedConsultantAccountIds ?? prev.allowedConsultantAccountIds ?? [],
+  };
+  await profile.save();
+  res.status(200).json({ success: true, data: profile.toJSON(), timestamp: new Date().toISOString() });
 };
