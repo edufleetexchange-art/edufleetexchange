@@ -602,3 +602,72 @@ export async function adminCreateStaff(input: AdminCreateStaffInput): Promise<Bu
     session.endSession();
   }
 }
+
+export interface AdminCreateConsultantInput {
+  name: string;
+  email: string;
+  password: string;
+  phone?: string;
+  agencyName?: string;
+  registrationNumber?: string;
+  yearsOfExperience: number;
+  specializations: { subjects: string[]; levels: string[]; regions: string[] };
+  bio?: string;
+  website?: string;
+  address?: Partial<{ street: string; city: string; state: string; pincode: string; country: string }>;
+  planId?: string;
+  isVerified?: boolean;
+}
+
+export async function adminCreateConsultant(input: AdminCreateConsultantInput): Promise<Bundle> {
+  const session = await mongoose.startSession();
+  try {
+    return await session.withTransaction(async () => {
+      const [account] = await Account.create(
+        [
+          {
+            name: input.name,
+            email: input.email,
+            password: input.password,
+            role: 'consultant',
+            phone: input.phone,
+            avatar: avatarFor(input.email),
+            isVerified: input.isVerified ?? true,
+            isActive: true,
+          },
+        ],
+        { session }
+      );
+      const [profile] = await ConsultantProfile.create(
+        [
+          {
+            accountId: account._id,
+            agencyName: input.agencyName,
+            registrationNumber: input.registrationNumber,
+            yearsOfExperience: input.yearsOfExperience,
+            specializations: input.specializations,
+            bio: input.bio,
+            website: input.website,
+            phone: input.phone,
+            address: input.address,
+          },
+        ],
+        { session }
+      );
+      const subscription = await createSubscriptionForAccount(
+        account._id,
+        'consultant',
+        input.planId,
+        session,
+        input.planId ? 'Plan assigned on admin onboarding' : 'Free plan assigned on admin onboarding'
+      );
+      return {
+        account: account.toJSON(),
+        profile: profile.toJSON(),
+        subscription: subscription.toJSON(),
+      };
+    });
+  } finally {
+    session.endSession();
+  }
+}
