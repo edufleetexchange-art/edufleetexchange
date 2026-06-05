@@ -3,6 +3,7 @@ import Account from '../models/Account.js';
 import InstituteProfile from '../models/InstituteProfile.js';
 import TeacherProfile from '../models/TeacherProfile.js';
 import VendorProfile from '../models/VendorProfile.js';
+import ConsultantProfile from '../models/ConsultantProfile.js';
 import StaffProfile from '../models/StaffProfile.js';
 import Subscription from '../models/Subscription.js';
 import SubscriptionPlan from '../models/SubscriptionPlan.js';
@@ -259,10 +260,80 @@ export async function signupVendor(input: VendorSignupInput): Promise<Bundle> {
   }
 }
 
+export interface ConsultantSignupInput {
+  name: string;
+  email: string;
+  password: string;
+  phone?: string;
+  agencyName?: string;
+  registrationNumber?: string;
+  yearsOfExperience: number;
+  specializations: { subjects: string[]; levels: string[]; regions: string[] };
+  bio?: string;
+  website?: string;
+  address?: Partial<Address>;
+}
+
+export async function signupConsultant(input: ConsultantSignupInput): Promise<Bundle> {
+  const session = await mongoose.startSession();
+  try {
+    return await session.withTransaction(async () => {
+      const [account] = await Account.create(
+        [
+          {
+            name: input.name,
+            email: input.email,
+            password: input.password,
+            role: 'consultant',
+            phone: input.phone,
+            avatar: avatarFor(input.email),
+            isActive: true,
+            isVerified: false,
+          },
+        ],
+        { session }
+      );
+      const [profile] = await ConsultantProfile.create(
+        [
+          {
+            accountId: account._id,
+            agencyName: input.agencyName,
+            registrationNumber: input.registrationNumber,
+            yearsOfExperience: input.yearsOfExperience,
+            specializations: input.specializations,
+            bio: input.bio,
+            website: input.website,
+            phone: input.phone,
+            address: input.address,
+          },
+        ],
+        { session }
+      );
+      const plan = await SubscriptionPlan.findOne({
+        planType: 'consultant',
+        price: 0,
+        isActive: true,
+      }).session(session);
+      const [subscription] = await Subscription.create(
+        [defaultSubscriptionFromPlan(account._id, plan)],
+        { session }
+      );
+      return {
+        account: account.toJSON(),
+        profile: profile.toJSON(),
+        subscription: subscription.toJSON(),
+      };
+    });
+  } finally {
+    session.endSession();
+  }
+}
+
 const PROFILE_MODEL_BY_ROLE: Record<string, any> = {
   institute: InstituteProfile,
   teacher: TeacherProfile,
   vendor: VendorProfile,
+  consultant: ConsultantProfile,
   admin: StaffProfile,
   marketing: StaffProfile,
   sales: StaffProfile,
