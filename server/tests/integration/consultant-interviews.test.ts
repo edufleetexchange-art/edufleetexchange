@@ -123,4 +123,25 @@ describe('POST /api/interviews', () => {
     expect(patch.body.data.status).toBe('completed');
     expect(patch.body.data.outcome).toBe('recommend_hire');
   });
+
+  it('PATCH 403 when caller is neither participant nor scheduler', async () => {
+    const { consultantCookie, applicationId } = await setup();
+    const when = new Date(Date.now() + 86400000);
+    const created = await request(app).post('/api/interviews').set('Cookie', consultantCookie).send({
+      applicationId, scheduledAt: when.toISOString(), durationMinutes: 30, mode: 'video',
+    });
+    const id = created.body.data.id;
+
+    // Spin up an unrelated consultant who has nothing to do with this interview.
+    const stranger = await request(app).post('/api/auth/consultant/signup').send({
+      name: 'X', email: `x-${Date.now()}-${Math.floor(Math.random() * 1_000_000)}@e.com`, password: 'pwpwpw',
+      yearsOfExperience: 1, specializations: { subjects: [], levels: [], regions: [] },
+    });
+    const strangerCookie = stranger.headers['set-cookie'][0];
+
+    const res = await request(app).patch(`/api/interviews/${id}`).set('Cookie', strangerCookie).send({
+      cancel: true, rescheduleReason: 'malicious',
+    });
+    expect(res.status).toBe(403);
+  });
 });

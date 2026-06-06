@@ -13,7 +13,6 @@ import Placement from '../models/Placement.js';
 import { AuthRequest } from '../middleware/auth.js';
 import SystemConfig from '../models/SystemConfig.js';
 import { logAction } from '../utils/auditLogger.js';
-import { AuthRequest } from '../middleware/auth.js';
 import * as authService from '../services/authService.js';
 
 // @desc    Get admin dashboard stats

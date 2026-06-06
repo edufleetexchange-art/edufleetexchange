@@ -28,7 +28,7 @@ async function notifyParticipants(args: {
   const unique = Array.from(new Set(args.accountIds.filter(Boolean)));
   const docs = unique.map((id) => ({
     userId: new mongoose.Types.ObjectId(id),
-    type: 'interview_invitation' as const,
+    type: args.event,
     title: args.title,
     message: args.message,
     metadata: { event: args.event, ...(args.metadata ?? {}) },

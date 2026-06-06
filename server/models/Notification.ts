@@ -24,6 +24,8 @@ export interface INotification extends Document {
     | 'consultant_consent_revoked'
     | 'placement_stage_changed'
     | 'interview_invitation'
+    | 'interview_rescheduled'
+    | 'interview_canceled'
     | 'placement_completed';
   title: string;
   message: string;
@@ -67,6 +69,8 @@ const notificationSchema = new Schema<INotification>(
         'consultant_consent_revoked',
         'placement_stage_changed',
         'interview_invitation',
+        'interview_rescheduled',
+        'interview_canceled',
         'placement_completed',
       ],
     },

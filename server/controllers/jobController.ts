@@ -544,11 +544,18 @@ export const getApplications = async (req: AuthRequest, res: Response) => {
       } else {
         query.instituteId = userId;
       }
+    } else if (userRole === 'consultant') {
+      // Consultant: only applications they submitted on behalf of teachers.
+      query.submittedByConsultantId = userId;
+      if (jobId) query.jobId = jobId;
     } else if (userRole === 'admin') {
       // Admin: get all or filter by jobId
       if (jobId) {
         query.jobId = jobId;
       }
+    } else {
+      // Unknown role: fail closed.
+      return res.status(403).json({ success: false, error: 'Forbidden', code: 'FORBIDDEN' });
     }
 
     const applications = await Application.find(query)

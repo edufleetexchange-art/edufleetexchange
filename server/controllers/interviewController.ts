@@ -40,18 +40,31 @@ export const patch = async (req: AuthRequest, res: Response): Promise<void> => {
   const id = req.params.id;
   const { scheduledAt, rescheduleReason, outcome, notesAfter, cancel } = req.body || {};
   try {
+    const existing = await Interview.findById(id);
+    if (!existing) { err(res, 404, 'Interview not found', 'NOT_FOUND'); return; }
+    const accountId = String(req.account!.id);
+    const isParticipant =
+      existing.participants.map(String).includes(accountId) ||
+      String(existing.consultantId) === accountId ||
+      String(existing.scheduledByAccountId) === accountId ||
+      String(existing.teacherAccountId) === accountId ||
+      String(existing.instituteAccountId) === accountId;
+    if (!isParticipant && req.account!.role !== 'admin') {
+      err(res, 403, 'Forbidden', 'FORBIDDEN');
+      return;
+    }
     if (cancel) {
-      const doc = await cancelInterview(id, rescheduleReason, String(req.account!.id));
+      const doc = await cancelInterview(id, rescheduleReason, accountId);
       ok(res, doc.toJSON());
       return;
     }
     if (outcome) {
-      const doc = await completeInterview(id, outcome, notesAfter, String(req.account!.id));
+      const doc = await completeInterview(id, outcome, notesAfter, accountId);
       ok(res, doc.toJSON());
       return;
     }
     if (scheduledAt) {
-      const doc = await rescheduleInterview(id, new Date(scheduledAt), String(req.account!.id), rescheduleReason);
+      const doc = await rescheduleInterview(id, new Date(scheduledAt), accountId, rescheduleReason);
       ok(res, doc.toJSON());
       return;
     }
