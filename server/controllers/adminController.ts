@@ -8,9 +8,11 @@ import SubscriptionPlan from '../models/SubscriptionPlan.js';
 import Notification from '../models/Notification.js';
 import AuditLog from '../models/AuditLog.js';
 import Category from '../models/Category.js';
+import ConsultantProfile from '../models/ConsultantProfile.js';
+import Placement from '../models/Placement.js';
+import { AuthRequest } from '../middleware/auth.js';
 import SystemConfig from '../models/SystemConfig.js';
 import { logAction } from '../utils/auditLogger.js';
-import { AuthRequest } from '../middleware/auth.js';
 import * as authService from '../services/authService.js';
 
 // @desc    Get admin dashboard stats
@@ -905,4 +907,33 @@ export const updateSetting = async (req: AuthRequest, res: Response): Promise<vo
       code: 'UPDATE_ERROR',
     });
   }
+};
+
+export const adminListConsultants = async (req: AuthRequest, res: Response): Promise<void> => {
+  const page = Math.max(1, parseInt((req.query.page as string) ?? '1', 10));
+  const pageSize = Math.min(100, Math.max(1, parseInt((req.query.pageSize as string) ?? '20', 10)));
+  const items = await ConsultantProfile.find({})
+    .populate('accountId', 'name email avatar isActive isVerified')
+    .sort({ createdAt: -1 })
+    .skip((page - 1) * pageSize)
+    .limit(pageSize);
+  const total = await ConsultantProfile.countDocuments({});
+  res.status(200).json({ success: true, data: { items: items.map((i) => i.toJSON()), total, page, pageSize, hasMore: page * pageSize < total }, timestamp: new Date().toISOString() });
+};
+
+export const adminListPlacements = async (req: AuthRequest, res: Response): Promise<void> => {
+  const page = Math.max(1, parseInt((req.query.page as string) ?? '1', 10));
+  const pageSize = Math.min(100, Math.max(1, parseInt((req.query.pageSize as string) ?? '20', 10)));
+  const filter: any = {};
+  if (req.query.consultantId) filter.consultantAccountId = req.query.consultantId;
+  if (req.query.stage) filter.stage = req.query.stage;
+  const items = await Placement.find(filter)
+    .populate('consultantAccountId', 'name email')
+    .populate('teacherAccountId', 'name email')
+    .populate('jobId', 'title instituteName')
+    .sort({ lastActivityAt: -1 })
+    .skip((page - 1) * pageSize)
+    .limit(pageSize);
+  const total = await Placement.countDocuments(filter);
+  res.status(200).json({ success: true, data: { items: items.map((i) => i.toJSON()), total, page, pageSize, hasMore: page * pageSize < total }, timestamp: new Date().toISOString() });
 };

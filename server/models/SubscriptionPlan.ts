@@ -28,13 +28,20 @@ interface IPersonaFeatures {
   canAccessJobBoard?: boolean;
   teacherDataDelayDays?: number;
   instantJobNotifications?: boolean;
+
+  // Consultant-specific features
+  maxRosterTeachers?: number;
+  maxRosterInstitutes?: number;
+  maxApplicationsPerMonth?: number;
+  maxPlacementsPerMonth?: number;
+  canViewTeacherContact?: boolean;
 }
 
 export interface ISubscriptionPlan extends Document {
   name: string;
   displayName: string;
   description: string;
-  planType: 'teacher' | 'institute' | 'vendor';
+  planType: 'teacher' | 'institute' | 'vendor' | 'consultant';
   price: number;
   currency: string;
   duration: number; // in days
@@ -59,7 +66,7 @@ const subscriptionPlanSchema = new Schema<ISubscriptionPlan>(
     },
     planType: {
       type: String,
-      enum: ['teacher', 'institute', 'vendor'],
+      enum: ['teacher', 'institute', 'vendor', 'consultant'],
       required: true,
     },
     description: {
@@ -167,6 +174,13 @@ const subscriptionPlanSchema = new Schema<ISubscriptionPlan>(
         type: Boolean,
         default: false,
       },
+
+      // Consultant-specific features
+      maxRosterTeachers: { type: Number, min: 0 },
+      maxRosterInstitutes: { type: Number, min: 0 },
+      maxApplicationsPerMonth: { type: Number, min: 0 },
+      maxPlacementsPerMonth: { type: Number, min: 0 },
+      canViewTeacherContact: { type: Boolean, default: false },
     },
     isActive: {
       type: Boolean,

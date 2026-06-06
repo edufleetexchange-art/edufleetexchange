@@ -48,6 +48,14 @@ export const signupVendor = async (req: Request, res: Response): Promise<void> =
   } catch (e) { handleErr(res, e); }
 };
 
+export const signupConsultant = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const bundle = await authService.signupConsultant(req.body);
+    setAuthCookie(res, bundle.account.id, bundle.account.role);
+    res.status(201).json({ success: true, data: bundle, message: 'Consultant registered', timestamp: new Date().toISOString() });
+  } catch (e) { handleErr(res, e); }
+};
+
 export const login = async (req: Request, res: Response): Promise<void> => {
   try {
     const { email, password } = req.body || {};

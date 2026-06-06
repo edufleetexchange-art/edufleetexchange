@@ -15,6 +15,8 @@ import {
   deleteCategory,
   getSettings,
   updateSetting,
+  adminListConsultants,
+  adminListPlacements,
 } from '../controllers/adminController.js';
 import { approveSupplierStatus } from '../controllers/supplierController.js';
 import { authenticate, requireRole } from '../middleware/auth.js';
@@ -61,5 +63,9 @@ router.get('/metrics/summary', metricsSummary);
 router.get('/metrics/signups', metricsSignups);
 router.get('/metrics/approval-funnel', metricsApprovalFunnel);
 router.get('/metrics/active-users', metricsActiveUsers);
+
+// Consultant + placement admin views
+router.get('/consultants', requireRole(['admin']), adminListConsultants);
+router.get('/placements', requireRole(['admin']), adminListPlacements);
 
 export default router;

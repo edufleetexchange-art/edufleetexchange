@@ -8,11 +8,18 @@ import StaffProfile from '../../models/StaffProfile.js';
 const DEFAULT_PASSWORD = 'password123';
 
 async function ensureFreePlans() {
-  const planSpecs: Array<['institute' | 'teacher' | 'vendor', string, string]> = [
-    ['institute', 'institute-free', 'Institute Free'],
-    ['teacher',   'teacher-free',   'Teacher Free'],
-    ['vendor',    'vendor-free',    'Vendor Free'],
+  const planSpecs: Array<['institute' | 'teacher' | 'vendor' | 'consultant', string, string]> = [
+    ['institute',  'institute-free',  'Institute Free'],
+    ['teacher',    'teacher-free',    'Teacher Free'],
+    ['vendor',     'vendor-free',     'Vendor Free'],
+    ['consultant', 'consultant-free', 'Consultant Free'],
   ];
+  const featuresByType: Record<string, any> = {
+    institute:  { maxBrowsesPerMonth: 100, maxListings: 5, maxJobPosts: 3, dataDelayDays: 0, instantAlerts: false, analytics: false, supportLevel: 'basic' },
+    teacher:    { maxBrowsesPerMonth: 100, maxListings: 5, maxJobPosts: 3, dataDelayDays: 0, instantAlerts: false, analytics: false, supportLevel: 'basic' },
+    vendor:     { maxBrowsesPerMonth: 100, maxListings: 5, maxJobPosts: 3, dataDelayDays: 0, instantAlerts: false, analytics: false, supportLevel: 'basic' },
+    consultant: { maxBrowsesPerMonth: 200, maxRosterTeachers: 25, maxRosterInstitutes: 25, maxApplicationsPerMonth: 10, maxPlacementsPerMonth: 3, canViewTeacherContact: false, dataDelayDays: 0, instantAlerts: false, analytics: false, supportLevel: 'basic' },
+  };
   for (const [planType, name, displayName] of planSpecs) {
     const exists = await SubscriptionPlan.findOne({ name });
     if (exists) continue;
@@ -20,10 +27,7 @@ async function ensureFreePlans() {
       name, displayName, planType,
       description: `${displayName} plan`,
       price: 0, duration: 30,
-      features: {
-        maxBrowsesPerMonth: 100, maxListings: 5, maxJobPosts: 3,
-        dataDelayDays: 0, instantAlerts: false, analytics: false, supportLevel: 'basic',
-      },
+      features: featuresByType[planType],
       isActive: true,
     });
     console.log(`✓ seeded plan ${name}`);
@@ -56,6 +60,16 @@ async function seedExternalPersonas() {
       businessName: 'Acme Books Pvt Ltd', contactPerson: 'V. Mehta',
     });
     console.log('✓ seeded vendor vendor1@edufleet.test');
+  }
+  if (!await exists('consultant1@edufleet.test')) {
+    await authService.signupConsultant({
+      name: 'P. Recruiter', email: 'consultant1@edufleet.test', password: DEFAULT_PASSWORD, phone: '+91 1234567893',
+      agencyName: 'Bengaluru Education Partners',
+      yearsOfExperience: 8,
+      specializations: { subjects: ['Math', 'Science'], levels: ['Secondary'], regions: ['Bengaluru', 'Mysore'] },
+      bio: 'Senior K-12 placement consultant.',
+    });
+    console.log('✓ seeded consultant consultant1@edufleet.test');
   }
 }
 

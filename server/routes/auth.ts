@@ -3,6 +3,7 @@ import {
   signupInstitute,
   signupTeacher,
   signupVendor,
+  signupConsultant,
   login,
   logout,
   me,
@@ -18,6 +19,7 @@ const router = express.Router();
 router.post('/institute/signup', signupInstitute);
 router.post('/teacher/signup', signupTeacher);
 router.post('/vendor/signup', signupVendor);
+router.post('/consultant/signup', signupConsultant);
 router.post('/login', login);
 router.post('/logout', authenticate, logout);
 router.get('/me', authenticate, me);

@@ -172,3 +172,57 @@ export async function similarJobsForTeacher(accountId: string, limit = 10) {
     .sort((a, b) => b.score - a.score)
     .slice(0, limit);
 }
+
+// ============================================================
+// CONSULTANT-SCOPED RECOMMENDATIONS
+// ============================================================
+
+function getConsultantRosterModel(): mongoose.Model<any> {
+  const m = mongoose.models['ConsultantRoster'] as mongoose.Model<any> | undefined;
+  if (!m) throw new Error('ConsultantRoster model not registered — import models/ConsultantRoster.js before calling matchService');
+  return m;
+}
+
+export async function recommendJobsForConsultantRoster(consultantAccountId: string, limit = 20) {
+  const ConsultantRoster = getConsultantRosterModel();
+  const TeacherProfile = getTeacherProfileModel();
+  const Job = getJobModel();
+  const roster = await ConsultantRoster.find({
+    consultantAccountId, entityType: 'teacher', status: 'active',
+  });
+  if (roster.length === 0) return [];
+  const teacherIds = roster.map((r: any) => r.entityAccountId);
+  const teachers = await TeacherProfile.find({ accountId: { $in: teacherIds } });
+  if (teachers.length === 0) return [];
+
+  const jobs = await Job.find({ status: 'active' }).limit(200);
+  const scored = jobs.map((job: any) => {
+    let bestScore = 0;
+    let bestTeacherId: any = null;
+    for (const t of teachers) {
+      const s = scoreTeacherForJob(t, job);
+      if (s > bestScore) { bestScore = s; bestTeacherId = (t as any).accountId; }
+    }
+    return { job: job.toJSON ? job.toJSON() : job, score: bestScore, bestTeacherAccountId: bestTeacherId };
+  });
+  return scored.sort((a, b) => b.score - a.score).slice(0, limit);
+}
+
+export async function recommendTeachersFromRosterForJob(consultantAccountId: string, jobId: string, limit = 20) {
+  const ConsultantRoster = getConsultantRosterModel();
+  const TeacherProfile = getTeacherProfileModel();
+  const Job = getJobModel();
+  const job = await Job.findById(jobId);
+  if (!job) return [];
+  const roster = await ConsultantRoster.find({
+    consultantAccountId, entityType: 'teacher', status: 'active',
+  });
+  if (roster.length === 0) return [];
+  const teacherIds = roster.map((r: any) => r.entityAccountId);
+  const teachers = await TeacherProfile.find({ accountId: { $in: teacherIds } });
+  const scored = teachers.map((t: any) => ({
+    teacher: t.toJSON(),
+    score: scoreTeacherForJob(t, job),
+  }));
+  return scored.sort((a, b) => b.score - a.score).slice(0, limit);
+}

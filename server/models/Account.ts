@@ -1,7 +1,7 @@
 import mongoose, { Schema, Document } from 'mongoose';
 import bcrypt from 'bcryptjs';
 
-export type AccountRole = 'institute' | 'teacher' | 'vendor' | 'admin' | 'marketing' | 'sales';
+export type AccountRole = 'institute' | 'teacher' | 'vendor' | 'admin' | 'marketing' | 'sales' | 'consultant';
 
 export interface IAccount extends Document {
   name: string;
@@ -36,7 +36,7 @@ const accountSchema = new Schema<IAccount>(
     },
     role: {
       type: String,
-      enum: ['institute', 'teacher', 'vendor', 'admin', 'marketing', 'sales'],
+      enum: ['institute', 'teacher', 'vendor', 'admin', 'marketing', 'sales', 'consultant'],
       required: true,
     },
     phone: { type: String, trim: true },

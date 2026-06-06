@@ -1,9 +1,14 @@
 import { Response } from 'express';
+import mongoose from 'mongoose';
 import Job from '../models/Job.js';
 import Account from '../models/Account.js';
 import Subscription from '../models/Subscription.js';
 import Notification from '../models/Notification.js';
 import Application from '../models/Application.js';
+import TeacherProfile from '../models/TeacherProfile.js';
+import ConsultantRoster from '../models/ConsultantRoster.js';
+import Placement from '../models/Placement.js';
+import { createPlacement, transitionStage } from '../services/placementService.js';
 import { logAction } from '../utils/auditLogger.js';
 import { AuthRequest } from '../middleware/auth.js';
 import { ISubscriptionPlan } from '../models/SubscriptionPlan.js';
@@ -352,9 +357,57 @@ export const getInstituteJobs = async (req: AuthRequest, res: Response) => {
 // Apply to job
 export const applyToJob = async (req: AuthRequest, res: Response) => {
   try {
-    const userId = req.account?.id;
+    const callerId = req.account?.id;
+    const callerRole = req.account?.role;
     const jobId = req.params.id;
     const { coverLetter } = req.body;
+
+    // Determine the teacher of record + (optional) submitting consultant.
+    let actingTeacherId: string = String(callerId);
+    let submittedByConsultantId: mongoose.Types.ObjectId | undefined;
+
+    if (callerRole === 'consultant') {
+      const targetTeacherId = req.body?.teacherAccountId;
+      if (!targetTeacherId) {
+        return res.status(400).json({
+          success: false,
+          error: 'teacherAccountId required for consultant submissions',
+          code: 'MISSING_TEACHER',
+        });
+      }
+      const teacherProfile = await TeacherProfile.findOne({ accountId: targetTeacherId });
+      if (!teacherProfile || !teacherProfile.consultantConsent?.granted) {
+        return res.status(403).json({
+          success: false,
+          error: 'Teacher has not granted consultant consent',
+          code: 'CONSENT_MISSING',
+        });
+      }
+      if (teacherProfile.consultantConsent.scope === 'specific') {
+        const allowed = (teacherProfile.consultantConsent.allowedConsultantAccountIds ?? []).map(String);
+        if (!allowed.includes(String(callerId))) {
+          return res.status(403).json({
+            success: false,
+            error: 'Consultant not in teacher allowlist',
+            code: 'CONSENT_SCOPED',
+          });
+        }
+      }
+      const rosterEntry = await ConsultantRoster.findOne({
+        consultantAccountId: callerId,
+        entityAccountId: targetTeacherId,
+        status: 'active',
+      });
+      if (!rosterEntry) {
+        return res.status(403).json({
+          success: false,
+          error: 'Teacher not in your active roster',
+          code: 'NOT_IN_ROSTER',
+        });
+      }
+      actingTeacherId = String(targetTeacherId);
+      submittedByConsultantId = new mongoose.Types.ObjectId(String(callerId));
+    }
 
     if (!coverLetter) {
       return res.status(400).json({
@@ -383,7 +436,7 @@ export const applyToJob = async (req: AuthRequest, res: Response) => {
     }
 
     // Check if already applied
-    const existingApplication = await Application.findOne({ jobId, teacherId: userId });
+    const existingApplication = await Application.findOne({ jobId, teacherId: actingTeacherId });
     if (existingApplication) {
       return res.status(400).json({
         success: false,
@@ -393,7 +446,7 @@ export const applyToJob = async (req: AuthRequest, res: Response) => {
     }
 
     // Get teacher details
-    const teacher = await Account.findById(userId);
+    const teacher = await Account.findById(actingTeacherId);
     if (!teacher) {
       return res.status(404).json({
         success: false,
@@ -405,12 +458,36 @@ export const applyToJob = async (req: AuthRequest, res: Response) => {
     // Create application
     const application = await Application.create({
       jobId,
-      teacherId: userId,
+      teacherId: actingTeacherId,
       teacherName: teacher.name,
       instituteId: job.instituteId,
       instituteName: job.instituteName,
       coverLetter,
+      submittedByConsultantId,
     });
+
+    // Auto-upsert Placement for consultant-submitted applications.
+    if (submittedByConsultantId) {
+      const existingPlacement = await Placement.findOne({
+        consultantAccountId: callerId,
+        teacherAccountId: actingTeacherId,
+        jobId,
+        stage: { $in: ['proposed', 'applied', 'interviewing', 'offer_extended'] },
+      });
+      if (!existingPlacement) {
+        await createPlacement({
+          consultantAccountId: String(callerId),
+          teacherAccountId: actingTeacherId,
+          jobId: String(jobId),
+          applicationId: String(application._id),
+          initialStage: 'applied',
+        });
+      } else if (existingPlacement.stage === 'proposed') {
+        try {
+          await transitionStage(String(existingPlacement._id), 'applied', String(callerId), 'Application submitted');
+        } catch { /* non-fatal */ }
+      }
+    }
 
     // Increment applications count
     job.applicationsCount += 1;
@@ -467,21 +544,54 @@ export const getApplications = async (req: AuthRequest, res: Response) => {
       } else {
         query.instituteId = userId;
       }
+    } else if (userRole === 'consultant') {
+      // Consultant: only applications they submitted on behalf of teachers.
+      query.submittedByConsultantId = userId;
+      if (jobId) query.jobId = jobId;
     } else if (userRole === 'admin') {
       // Admin: get all or filter by jobId
       if (jobId) {
         query.jobId = jobId;
       }
+    } else {
+      // Unknown role: fail closed.
+      return res.status(403).json({ success: false, error: 'Forbidden', code: 'FORBIDDEN' });
     }
 
     const applications = await Application.find(query)
       .sort('-appliedDate')
       .populate('teacherId', 'name email phone location experience qualifications subjects avatar bio')
-      .populate('jobId', 'title department location salary employmentType');
+      .populate('jobId', 'title department location salary employmentType')
+      .populate('submittedByConsultantId', 'name email phone');
+
+    // Enrich consultant-submitted apps with the consultant's agencyName.
+    const consultantIds = applications
+      .map((a: any) => a.submittedByConsultantId?._id ?? a.submittedByConsultantId)
+      .filter(Boolean);
+    let profileByAccountId = new Map<string, any>();
+    if (consultantIds.length) {
+      const ConsultantProfile = (await import('../models/ConsultantProfile.js')).default;
+      const profiles = await ConsultantProfile.find({ accountId: { $in: consultantIds } });
+      profileByAccountId = new Map(profiles.map((p: any) => [String(p.accountId), p]));
+    }
+    const enriched = applications.map((a: any) => {
+      if (!a.submittedByConsultantId) return a;
+      const consultantId = String(a.submittedByConsultantId?._id ?? a.submittedByConsultantId);
+      const cp = profileByAccountId.get(consultantId);
+      const json: any = a.toJSON ? a.toJSON() : a;
+      json.submittedByConsultantId = {
+        id: consultantId,
+        name: a.submittedByConsultantId.name,
+        email: a.submittedByConsultantId.email,
+        phone: a.submittedByConsultantId.phone,
+        agencyName: cp?.agencyName,
+      };
+      return json;
+    });
 
     res.status(200).json({
       success: true,
-      data: applications,
+      data: enriched,
     });
   } catch (error: any) {
     res.status(500).json({
