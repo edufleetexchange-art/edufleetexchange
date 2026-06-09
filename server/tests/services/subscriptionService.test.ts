@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import Account from '../../models/Account.js';
 import Subscription from '../../models/Subscription.js';
-import { incrementUsage, canConsume } from '../../services/subscriptionService.js';
+import { incrementUsage, canConsume, tryConsume, releaseReservation } from '../../services/subscriptionService.js';
 
 async function setup(limits: { listings: number; jobs: number; browse: number }) {
   const a = await Account.create({
@@ -44,5 +44,40 @@ describe('subscriptionService.canConsume', () => {
   it('returns true when limit is 0 (unlimited)', async () => {
     const a = await setup({ listings: 0, jobs: 0, browse: 0 });
     expect(await canConsume(String(a._id), 'listings')).toBe(true);
+  });
+});
+
+describe('subscriptionService.tryConsume', () => {
+  it('grants exactly N slots when N requests race for an N-slot quota', async () => {
+    // Limit = 5. Fire 20 concurrent attempts. Exactly 5 must return true; the
+    // other 15 must return false. This is the TOCTOU fix in action.
+    const a = await setup({ listings: 5, jobs: 0, browse: 0 });
+    const results = await Promise.all(
+      Array.from({ length: 20 }).map(() => tryConsume(String(a._id), 'listings')),
+    );
+    const granted = results.filter(Boolean).length;
+    expect(granted).toBe(5);
+    const s = await Subscription.findOne({ accountId: a._id, status: 'active' });
+    expect(s!.listingsUsed).toBe(5);
+  });
+
+  it('returns false when the limit is already reached', async () => {
+    const a = await setup({ listings: 1, jobs: 0, browse: 0 });
+    expect(await tryConsume(String(a._id), 'listings')).toBe(true);
+    expect(await tryConsume(String(a._id), 'listings')).toBe(false);
+  });
+
+  it('treats limit=0 as unlimited and always grants', async () => {
+    const a = await setup({ listings: 0, jobs: 0, browse: 0 });
+    expect(await tryConsume(String(a._id), 'listings')).toBe(true);
+    expect(await tryConsume(String(a._id), 'listings')).toBe(true);
+  });
+
+  it('releaseReservation refunds a previously claimed slot', async () => {
+    const a = await setup({ listings: 1, jobs: 0, browse: 0 });
+    expect(await tryConsume(String(a._id), 'listings')).toBe(true);
+    expect(await tryConsume(String(a._id), 'listings')).toBe(false);
+    await releaseReservation(String(a._id), 'listings');
+    expect(await tryConsume(String(a._id), 'listings')).toBe(true);
   });
 });

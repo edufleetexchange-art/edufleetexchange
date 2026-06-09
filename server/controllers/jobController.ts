@@ -8,6 +8,7 @@ import Application from '../models/Application.js';
 import TeacherProfile from '../models/TeacherProfile.js';
 import ConsultantRoster from '../models/ConsultantRoster.js';
 import Placement from '../models/Placement.js';
+import { tryConsume, releaseReservation } from '../services/subscriptionService.js';
 import { createPlacement, transitionStage } from '../services/placementService.js';
 import { logAction } from '../utils/auditLogger.js';
 import { AuthRequest } from '../middleware/auth.js';
@@ -39,17 +40,16 @@ export const createJob = async (req: AuthRequest, res: Response) => {
       });
     }
 
-    // Check subscription limits for job posts
+    // Atomic quota reservation: under concurrency, only one request can claim
+    // the last available slot. If the downstream Job.create fails, we roll
+    // back the reservation via releaseReservation.
+    let reserved = false;
     if (user.role !== 'admin' && user.role !== 'sales') {
-      const sub = await Subscription.findOne({ accountId: userId, status: 'active' }).populate('planId');
-      const plan = sub?.planId as unknown as ISubscriptionPlan;
-      const maxJobPosts = plan?.features?.maxJobPosts ?? 0;
-      const jobPostsUsed = sub?.jobPostsUsed ?? 0;
-
-      if (maxJobPosts !== -1 && jobPostsUsed >= maxJobPosts) {
+      reserved = await tryConsume(String(userId), 'jobPosts');
+      if (!reserved) {
         return res.status(403).json({
           success: false,
-          error: `You have reached your job post limit (${maxJobPosts}). Please upgrade your plan.`,
+          error: 'You have reached your job post limit. Please upgrade your plan.',
           code: 'LIMIT_REACHED',
         });
       }
@@ -114,7 +114,15 @@ export const createJob = async (req: AuthRequest, res: Response) => {
       contactEmail,
     };
 
-    const job = await Job.create(jobData);
+    let job;
+    try {
+      job = await Job.create(jobData);
+    } catch (createErr) {
+      // Refund the quota slot we reserved up top — otherwise the user loses
+      // a job-post permanently for a failed create.
+      if (reserved) await releaseReservation(String(userId), 'jobPosts');
+      throw createErr;
+    }
 
     // Log action if staff member assisted
     if (user.role === 'sales' || user.role === 'admin') {
@@ -126,14 +134,6 @@ export const createJob = async (req: AuthRequest, res: Response) => {
         details: `Assisted in listing job "${job.title}" for institute ${instituteName} (${instituteId})`,
         req
       });
-    }
-
-    // Update jobPostsUsed counter via Subscription model
-    if (user.role !== 'sales') {
-      await Subscription.findOneAndUpdate(
-        { accountId: userId, status: 'active' },
-        { $inc: { jobPostsUsed: 1 } }
-      );
     }
 
     res.status(201).json({
