@@ -6,6 +6,7 @@ import Subscription from '../models/Subscription.js';
 import { logAction } from '../utils/auditLogger.js';
 import { AuthRequest } from '../middleware/auth.js';
 import { ISubscriptionPlan } from '../models/SubscriptionPlan.js';
+import { tryConsume, releaseReservation } from '../services/subscriptionService.js';
 
 // Helper to get data delay date
 const getDataDelayDate = (user: any): Date | null => {
@@ -213,10 +214,10 @@ export const createVehicle = async (req: AuthRequest, res: Response): Promise<vo
       return;
     }
 
-    // Check subscription permissions for vehicle advertising
+    // Plan-level permission check (this is a pure capability gate — no counter
+    // touched yet, so no TOCTOU here).
     if (req.account.role !== 'admin' && req.account.role !== 'sales') {
       const plan = req.subscription?.planId as unknown as ISubscriptionPlan;
-
       if (plan && !plan.features.canAdvertiseVehicles) {
         res.status(403).json({
           success: false,
@@ -225,28 +226,16 @@ export const createVehicle = async (req: AuthRequest, res: Response): Promise<vo
         });
         return;
       }
-
-      // Check listing limit
-      const maxListings = plan?.features?.maxListings ?? 0;
-      const listingsUsed = req.subscription?.listingsUsed ?? 0;
-
-      if (maxListings !== -1 && listingsUsed >= maxListings) {
-        res.status(403).json({
-          success: false,
-          error: `You have reached your listing limit (${maxListings}). Please upgrade your plan.`,
-          code: 'LIMIT_REACHED',
-        });
-        return;
-      }
     }
 
-    let sellerId = req.account.id;
+    // Resolve the seller (self or admin/sales on-behalf). sellerId is bound
+    // server-side from a real Account document, never trusted from req.body.
+    let sellerId: any = req.account.id;
     let sellerName = req.profile?.instituteName || req.account.name;
     let sellerEmail = req.account.email;
     let sellerPhone = req.account.phone;
     let actualSeller: any = null;
 
-    // If sales or admin, allow providing seller details (listing on behalf of school)
     if ((req.account.role === 'admin' || req.account.role === 'sales') && req.body.sellerId) {
       actualSeller = await Account.findById(req.body.sellerId);
       if (actualSeller) {
@@ -257,18 +246,61 @@ export const createVehicle = async (req: AuthRequest, res: Response): Promise<vo
       }
     }
 
+    // Atomic listing-quota reservation against the correct accountId. Self-
+    // create: caller's subscription. On-behalf-of: the actual seller's. Skip
+    // for admin/sales when they're not bound to a seller subscription.
+    const quotaHolder = actualSeller ? String(actualSeller._id) : (req.account.role === 'sales' ? null : String(req.account.id));
+    let reserved = false;
+    if (quotaHolder) {
+      reserved = await tryConsume(quotaHolder, 'listings');
+      if (!reserved) {
+        res.status(403).json({
+          success: false,
+          error: 'Listing limit reached for this account. Please upgrade the plan.',
+          code: 'LIMIT_REACHED',
+        });
+        return;
+      }
+    }
+
+    // Allowlist body fields — protects sellerId, sellerName, status, isPriority,
+    // views, etc. from client-supplied mass assignment.
     const vehicleData = {
-      ...req.body,
+      title: req.body.title,
+      description: req.body.description,
+      category: req.body.category,
+      make: req.body.make,
+      model: req.body.model,
+      year: req.body.year,
+      fuelType: req.body.fuelType,
+      transmission: req.body.transmission,
+      seatingCapacity: req.body.seatingCapacity,
+      price: req.body.price,
+      location: req.body.location,
+      condition: req.body.condition,
+      mileage: req.body.mileage,
+      features: req.body.features,
+      images: req.body.images,
+      thumbnail: req.body.thumbnail,
       sellerId,
       sellerName,
       sellerEmail,
       sellerPhone,
+      // Status is server-controlled; admin/sales-listed items are auto-approved,
+      // owner-listed items go to pending review.
       status: (req.account.role === 'admin' || req.account.role === 'sales') ? 'approved' : 'pending',
     };
 
-    const vehicle = await Vehicle.create(vehicleData);
+    let vehicle;
+    try {
+      vehicle = await Vehicle.create(vehicleData);
+    } catch (createErr) {
+      // Refund the reserved slot — otherwise the seller permanently loses a
+      // listing slot for a failed create.
+      if (reserved && quotaHolder) await releaseReservation(quotaHolder, 'listings');
+      throw createErr;
+    }
 
-    // Log action if staff member assisted
     if (req.account.role === 'sales' || req.account.role === 'admin') {
       await logAction({
         user: req.account as any,
@@ -278,20 +310,6 @@ export const createVehicle = async (req: AuthRequest, res: Response): Promise<vo
         details: `Assisted in listing vehicle "${vehicle.title}" for seller ${sellerName} (${sellerId})`,
         req
       });
-    }
-
-    // Update listingsUsed counter for the actual seller (Institute)
-    if (actualSeller) {
-      await Subscription.findOneAndUpdate(
-        { accountId: actualSeller._id, status: 'active' },
-        { $inc: { listingsUsed: 1 } }
-      );
-    } else if (req.subscription && req.account.role !== 'sales') {
-      // Normal flow (Institute creating for themselves) — update their Subscription document
-      await Subscription.findOneAndUpdate(
-        { accountId: req.account.id, status: 'active' },
-        { $inc: { listingsUsed: 1 } }
-      );
     }
 
     res.status(201).json({
@@ -349,8 +367,24 @@ export const updateVehicle = async (req: AuthRequest, res: Response): Promise<vo
       return;
     }
 
-    // Update vehicle
-    Object.assign(vehicle, req.body);
+    // Allowlist: a non-admin owner may edit cosmetic / descriptive fields only.
+    // Server-controlled trust fields (status, isPriority, sellerId, assistedBy,
+    // approvedBy, approvedAt, views, etc.) are NEVER taken from the request
+    // body — otherwise an owner could self-approve their own pending listing.
+    const ALLOWED_OWNER_FIELDS = [
+      'title', 'description', 'category', 'make', 'model', 'year',
+      'fuelType', 'transmission', 'seatingCapacity', 'price', 'location',
+      'condition', 'mileage', 'features', 'images', 'thumbnail',
+    ] as const;
+    const ALLOWED_ADMIN_EXTRA = ['status', 'isPriority', 'rejectionReason'] as const;
+    const allowed = isAdmin
+      ? [...ALLOWED_OWNER_FIELDS, ...ALLOWED_ADMIN_EXTRA]
+      : ALLOWED_OWNER_FIELDS;
+    for (const key of allowed) {
+      if (Object.prototype.hasOwnProperty.call(req.body ?? {}, key)) {
+        (vehicle as any)[key] = (req.body as any)[key];
+      }
+    }
     await vehicle.save();
 
     res.status(200).json({

@@ -8,6 +8,7 @@ import Application from '../models/Application.js';
 import TeacherProfile from '../models/TeacherProfile.js';
 import ConsultantRoster from '../models/ConsultantRoster.js';
 import Placement from '../models/Placement.js';
+import { tryConsume, releaseReservation } from '../services/subscriptionService.js';
 import { createPlacement, transitionStage } from '../services/placementService.js';
 import { logAction } from '../utils/auditLogger.js';
 import { AuthRequest } from '../middleware/auth.js';
@@ -39,44 +40,89 @@ export const createJob = async (req: AuthRequest, res: Response) => {
       });
     }
 
-    // Check subscription limits for job posts
+    // Atomic quota reservation: under concurrency, only one request can claim
+    // the last available slot. If the downstream Job.create fails, we roll
+    // back the reservation via releaseReservation.
+    let reserved = false;
     if (user.role !== 'admin' && user.role !== 'sales') {
-      const sub = await Subscription.findOne({ accountId: userId, status: 'active' }).populate('planId');
-      const plan = sub?.planId as unknown as ISubscriptionPlan;
-      const maxJobPosts = plan?.features?.maxJobPosts ?? 0;
-      const jobPostsUsed = sub?.jobPostsUsed ?? 0;
-
-      if (maxJobPosts !== -1 && jobPostsUsed >= maxJobPosts) {
+      reserved = await tryConsume(String(userId), 'jobPosts');
+      if (!reserved) {
         return res.status(403).json({
           success: false,
-          error: `You have reached your job post limit (${maxJobPosts}). Please upgrade your plan.`,
+          error: 'You have reached your job post limit. Please upgrade your plan.',
           code: 'LIMIT_REACHED',
         });
       }
     }
 
+    // Only institutes can post jobs in their own name. Admins/sales can list on
+    // behalf of a real institute account — assert the target is actually an
+    // institute (so a misclick doesn't bind a job to a vendor or teacher account
+    // and break every downstream join).
     let instituteId = userId;
     let instituteName = (user as any).instituteName || user.name;
     let contactEmail = user.email;
 
-    // If sales or admin, allow providing instituteId (listing on behalf of school)
-    if ((user.role === 'admin' || user.role === 'sales') && req.body.instituteId) {
-      const actualInstitute = await Account.findById(req.body.instituteId);
-      if (actualInstitute) {
-        instituteId = actualInstitute._id.toString();
-        instituteName = (actualInstitute as any).instituteName || actualInstitute.name;
-        contactEmail = actualInstitute.email;
+    if (user.role === 'admin' || user.role === 'sales') {
+      // Staff MUST supply a target institute id when posting on behalf.
+      const targetId = req.body.instituteId;
+      if (!targetId || typeof targetId !== 'string' || !mongoose.Types.ObjectId.isValid(targetId)) {
+        return res.status(400).json({
+          success: false,
+          error: 'instituteId is required when posting on behalf of an institute',
+          code: 'VALIDATION_ERROR',
+        });
       }
+      const actualInstitute = await Account.findById(targetId);
+      if (!actualInstitute || actualInstitute.role !== 'institute') {
+        return res.status(400).json({
+          success: false,
+          error: 'instituteId must refer to an active institute account',
+          code: 'VALIDATION_ERROR',
+        });
+      }
+      instituteId = actualInstitute._id.toString();
+      instituteName = (actualInstitute as any).instituteName || actualInstitute.name;
+      contactEmail = actualInstitute.email;
+    } else if (user.role !== 'institute') {
+      return res.status(403).json({
+        success: false,
+        error: 'Only institutes can post jobs',
+        code: 'FORBIDDEN',
+      });
     }
 
+    // Allowlist of fields a client may set on a job — protects server-managed
+    // fields (status, isPriority, applicationsCount, views, contactEmail, etc.).
     const jobData = {
-      ...req.body,
+      title: req.body.title,
+      description: req.body.description,
+      subjects: req.body.subjects,
+      qualification: req.body.qualification,
+      experience: req.body.experience,
+      salary: req.body.salary,
+      location: req.body.location,
+      department: req.body.department,
+      employmentType: req.body.employmentType,
+      type: req.body.type,
+      deadline: req.body.deadline,
+      requirements: req.body.requirements,
+      responsibilities: req.body.responsibilities,
+      benefits: req.body.benefits,
       instituteId,
       instituteName,
       contactEmail,
     };
 
-    const job = await Job.create(jobData);
+    let job;
+    try {
+      job = await Job.create(jobData);
+    } catch (createErr) {
+      // Refund the quota slot we reserved up top — otherwise the user loses
+      // a job-post permanently for a failed create.
+      if (reserved) await releaseReservation(String(userId), 'jobPosts');
+      throw createErr;
+    }
 
     // Log action if staff member assisted
     if (user.role === 'sales' || user.role === 'admin') {
@@ -88,14 +134,6 @@ export const createJob = async (req: AuthRequest, res: Response) => {
         details: `Assisted in listing job "${job.title}" for institute ${instituteName} (${instituteId})`,
         req
       });
-    }
-
-    // Update jobPostsUsed counter via Subscription model
-    if (user.role !== 'sales') {
-      await Subscription.findOneAndUpdate(
-        { accountId: userId, status: 'active' },
-        { $inc: { jobPostsUsed: 1 } }
-      );
     }
 
     res.status(201).json({
@@ -558,11 +596,23 @@ export const getApplications = async (req: AuthRequest, res: Response) => {
       return res.status(403).json({ success: false, error: 'Forbidden', code: 'FORBIDDEN' });
     }
 
+    // PII projection: never populate email/phone on listing endpoints by
+    // default. Institutes / admins get name+experience+subjects to evaluate
+    // the application; full contact details should require an explicit
+    // "view contact" endpoint, payment, or a post-shortlist state. Teachers
+    // reading their own applications get their own data, which is fine.
+    const teacherProjection = userRole === 'teacher' || userRole === 'admin'
+      ? 'name email phone location experience qualifications subjects avatar bio'
+      : 'name location experience qualifications subjects avatar bio';
+    const consultantProjection = userRole === 'admin'
+      ? 'name email phone'
+      : 'name';
+
     const applications = await Application.find(query)
       .sort('-appliedDate')
-      .populate('teacherId', 'name email phone location experience qualifications subjects avatar bio')
+      .populate('teacherId', teacherProjection)
       .populate('jobId', 'title department location salary employmentType')
-      .populate('submittedByConsultantId', 'name email phone');
+      .populate('submittedByConsultantId', consultantProjection);
 
     // Enrich consultant-submitted apps with the consultant's agencyName.
     const consultantIds = applications

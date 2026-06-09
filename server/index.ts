@@ -57,6 +57,13 @@ const __dirname = path.dirname(__filename);
 // Initialize Express app
 const app: Application = express();
 
+// Disable Express's extended (qs) query parser. With it on, `?role[$ne]=admin`
+// becomes `req.query.role = { $ne: 'admin' }` — flowing operator objects
+// straight into Mongoose finders. With the simple parser, the same input is
+// the literal string `[$ne]=admin`, which fails any enum/regex validation.
+// Combine with per-field validation in controllers for defence in depth.
+app.set('query parser', 'simple');
+
 // HTTP request logger (before routes)
 app.use(pinoHttp({
   logger,

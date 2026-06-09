@@ -210,8 +210,23 @@ export const updateSupplier = async (req: AuthRequest, res: Response) => {
       });
     }
 
-    // If updating from admin, don't reset status
-    const updateData = { ...req.body };
+    // Strict allowlist. Non-admins MAY NEVER set `isVerified`, `status`,
+    // `verifiedBy`, `views`, or `createdBy` from the request body — those are
+    // server-managed trust signals. Admins get a broader set including
+    // verification fields.
+    const OWNER_FIELDS = [
+      'name', 'category', 'description', 'services', 'contactPerson', 'email',
+      'phone', 'website', 'address', 'logo', 'images',
+      'certifications', 'yearsInBusiness', 'clientCount',
+    ] as const;
+    const ADMIN_EXTRA = ['isVerified', 'status', 'rejectionReason'] as const;
+    const allowed = userRole === 'admin' ? [...OWNER_FIELDS, ...ADMIN_EXTRA] : OWNER_FIELDS;
+    const updateData: Record<string, any> = {};
+    for (const key of allowed) {
+      if (Object.prototype.hasOwnProperty.call(req.body ?? {}, key)) {
+        updateData[key] = (req.body as any)[key];
+      }
+    }
     if (userRole !== 'admin') {
       updateData.status = 'pending'; // Re-approval required for user edits
     }

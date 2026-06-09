@@ -382,8 +382,18 @@ export const createUser = async (req: AuthRequest, res: Response): Promise<void>
       return;
     }
 
-    // Restrict marketing/sales role from creating admins or other staff users
-    if ((req.account?.role === 'marketing' || req.account?.role === 'sales') && (role === 'admin' || role === 'marketing' || role === 'sales')) {
+    // Sales can ONLY provision lead-persona accounts (institute, teacher, vendor).
+    // Anything else — admin/marketing/sales/consultant — is admin-only.
+    const callerRole = req.account?.role;
+    if (callerRole === 'sales' && !['institute', 'teacher', 'vendor'].includes(role)) {
+      res.status(403).json({
+        success: false,
+        error: 'Sales accounts may only provision institute, teacher, or vendor accounts',
+        code: 'FORBIDDEN',
+      });
+      return;
+    }
+    if (callerRole === 'marketing' && (role === 'admin' || role === 'marketing' || role === 'sales')) {
       res.status(403).json({
         success: false,
         error: 'Insufficient permissions to create this role',
@@ -391,6 +401,10 @@ export const createUser = async (req: AuthRequest, res: Response): Promise<void>
       });
       return;
     }
+
+    // Sales-provisioned accounts must NOT be auto-verified. An admin must
+    // explicitly verify them before they get trusted-tier features.
+    const forceUnverified = callerRole === 'sales';
 
     let bundle: authService.Bundle;
 
@@ -405,7 +419,7 @@ export const createUser = async (req: AuthRequest, res: Response): Promise<void>
           contactPerson,
           address: address || { street: 'N/A', city: 'N/A', state: 'N/A', pincode: '000000', country: 'India' },
           planId,
-          isVerified: true,
+          isVerified: !forceUnverified,
         });
         break;
       case 'teacher':
@@ -422,7 +436,7 @@ export const createUser = async (req: AuthRequest, res: Response): Promise<void>
           preferredLocation,
           isAvailable,
           planId,
-          isVerified: true,
+          isVerified: !forceUnverified,
         });
         break;
       case 'vendor':
@@ -436,7 +450,7 @@ export const createUser = async (req: AuthRequest, res: Response): Promise<void>
           website,
           address,
           planId,
-          isVerified: true,
+          isVerified: !forceUnverified,
         });
         break;
       case 'admin':
@@ -473,9 +487,19 @@ export const createUser = async (req: AuthRequest, res: Response): Promise<void>
       });
     }
 
+    // Project the response — never echo password / token-version / internal
+    // flags back over the wire, even if the model accidentally serializes them.
+    const safeAccount = (() => {
+      const a: any = bundle.account?.toObject ? bundle.account.toObject() : { ...(bundle.account as any) };
+      delete a.password;
+      delete a.__v;
+      return a;
+    })();
+    const safeBundle: any = { ...bundle, account: safeAccount };
+
     res.status(201).json({
       success: true,
-      data: bundle,
+      data: safeBundle,
       message: 'User created successfully',
       timestamp: new Date().toISOString(),
     });

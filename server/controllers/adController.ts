@@ -1,5 +1,39 @@
 import { Request, Response } from 'express';
+import sanitizeHtml from 'sanitize-html';
 import { Ad, AdRequest, IAd, IAdRequest } from '../models/Ad.js';
+
+const HTML_SANITIZE_OPTS: sanitizeHtml.IOptions = {
+  allowedTags: ['a', 'b', 'br', 'em', 'i', 'img', 'p', 'span', 'strong', 'div'],
+  allowedAttributes: {
+    a: ['href', 'rel', 'target'],
+    img: ['src', 'alt', 'width', 'height'],
+    span: ['style'],
+    div: ['style'],
+  },
+  allowedSchemes: ['http', 'https', 'data'],
+  // Force-add the no-leakage rel set whenever target=_blank is present.
+  transformTags: {
+    a: sanitizeHtml.simpleTransform('a', { rel: 'noopener noreferrer' }),
+  },
+};
+
+/** Reject anything that isn't an http(s) URL — drops javascript:, data:, file:, etc. */
+function isSafeHttpUrl(value: unknown): value is string {
+  if (typeof value !== 'string' || value.length > 2048) return false;
+  try {
+    const u = new URL(value);
+    return u.protocol === 'http:' || u.protocol === 'https:';
+  } catch {
+    return false;
+  }
+}
+
+/** Strip dangerous markup AND length-cap to prevent abuse. */
+function safeHtml(value: unknown): string | undefined {
+  if (typeof value !== 'string') return undefined;
+  const capped = value.length > 50_000 ? value.slice(0, 50_000) : value;
+  return sanitizeHtml(capped, HTML_SANITIZE_OPTS);
+}
 
 // ============ AD MANAGEMENT (Admin) ============
 
@@ -71,14 +105,23 @@ export const getAdById = async (req: Request, res: Response) => {
 // Create new ad (Admin)
 export const createAd = async (req: Request, res: Response) => {
   try {
-    const adData = req.body;
-    
+    const adData = req.body ?? {};
+
+    if (adData.targetUrl !== undefined && !isSafeHttpUrl(adData.targetUrl)) {
+      return res.status(400).json({ success: false, error: 'targetUrl must be a valid http(s) URL' });
+    }
+
     const ad = new Ad({
       ...adData,
+      // Sanitize html / re-validate URL fields BEFORE the document is saved so a
+      // dishonest req.body can never reach the wire as stored XSS.
+      htmlContent: safeHtml(adData.htmlContent),
+      mediaUrl: adData.mediaUrl && isSafeHttpUrl(adData.mediaUrl) ? adData.mediaUrl : undefined,
+      // Server-controlled counters, never trusted from the client:
       impressions: 0,
       clicks: 0,
     });
-    
+
     await ad.save();
     
     res.status(201).json({
@@ -100,8 +143,21 @@ export const createAd = async (req: Request, res: Response) => {
 export const updateAd = async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
-    const updates = req.body;
-    
+    const updates = { ...(req.body ?? {}) };
+
+    if (updates.targetUrl !== undefined && !isSafeHttpUrl(updates.targetUrl)) {
+      return res.status(400).json({ success: false, error: 'targetUrl must be a valid http(s) URL' });
+    }
+    if (updates.mediaUrl !== undefined && !isSafeHttpUrl(updates.mediaUrl)) {
+      return res.status(400).json({ success: false, error: 'mediaUrl must be a valid http(s) URL' });
+    }
+    if (updates.htmlContent !== undefined) {
+      updates.htmlContent = safeHtml(updates.htmlContent);
+    }
+    // Strip server-controlled counters so they can never be overwritten via update.
+    delete updates.impressions;
+    delete updates.clicks;
+
     const ad = await Ad.findByIdAndUpdate(
       id,
       { $set: updates },

@@ -11,7 +11,15 @@ import VendorProfile from '../models/VendorProfile.js';
 import { AuthRequest } from '../middleware/auth.js';
 import { logAction } from '../utils/auditLogger.js';
 import mongoose from 'mongoose';
+import crypto from 'crypto';
 import * as authService from '../services/authService.js';
+
+/** Generate a strong temp password that the rep can pass to the user once.
+ *  The user is expected to reset it on first login; we don't ship a hardcoded shared value. */
+function generateTempPassword(): string {
+  // ~104 bits of entropy in base64url; safe for "one-time, change-on-login" use.
+  return crypto.randomBytes(18).toString('base64url') + '!Aa9';
+}
 
 /**
  * @desc    Get sales dashboard stats
@@ -475,19 +483,24 @@ export const createSalesVendor = async (req: AuthRequest, res: Response): Promis
         });
       }
     } else {
-      // New vendor: create Account + VendorProfile + Subscription in a transaction
+      // New vendor: create Account + VendorProfile + Subscription in a transaction.
+      // The temp password is one-time only — surface it to the rep, never ship a constant.
+      const tempPassword = generateTempPassword();
       const bundle = await authService.adminCreateVendor({
         name: contactPerson || name,
         email,
-        password: 'ChangeMe123!',
+        password: tempPassword,
         phone,
         businessName: companyName || name,
         contactPerson,
         website,
         address,
         planId,
-        isVerified: true,
+        // Sales-provisioned accounts must clear an admin verification step before
+        // they're trusted — do not auto-verify here.
+        isVerified: false,
       });
+      (bundle as any).tempPassword = tempPassword;
       accountId = bundle.account._id || bundle.account.id;
       existingAccount = await Account.findById(accountId);
     }
