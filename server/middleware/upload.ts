@@ -4,27 +4,31 @@
  */
 
 import multer from 'multer';
-import { storage, imageFileFilter, multerConfig } from '../config/multer.js';
+import { imageFileFilter, documentFileFilter, multerConfig } from '../config/multer.js';
 
-// Multer upload instance for images
-export const upload = multer({
-  ...multerConfig,
-  fileFilter: imageFileFilter,
-});
+// Separate multer instances per file kind so the documents field doesn't
+// inherit the image-only filter (the previous combined instance silently
+// accepted whatever the image filter let through under the 'documents' name).
+const imageUpload = multer({ ...multerConfig, fileFilter: imageFileFilter });
+const documentUpload = multer({ ...multerConfig, fileFilter: documentFileFilter });
 
-// For multiple image files
-export const uploadMultiple = upload.array('images', multerConfig.limits.files);
+export const upload = imageUpload; // back-compat default
 
-// For single image file
-export const uploadSingle = upload.single('image');
+export const uploadMultiple = imageUpload.array('images', multerConfig.limits.files);
+export const uploadSingle = imageUpload.single('image');
 
-// For mixed form fields with images
-export const uploadFields = upload.fields([
+// Mixed-field uploads: images stream through the image filter; documents
+// through the document filter — multer applies the filter per-instance.
+// For the docs field we route through a documentUpload.fields with a single
+// dedicated field; if you need both image+document fields in one form,
+// split into two endpoints to keep the security boundary clean.
+export const uploadFields = imageUpload.fields([
   { name: 'images', maxCount: multerConfig.limits.files },
   { name: 'thumbnail', maxCount: 1 },
-  { name: 'documents', maxCount: 5 },
 ]);
 
-// Export for custom use cases
+export const uploadDocuments = documentUpload.array('documents', 5);
+export const uploadSingleDocument = documentUpload.single('document');
+
 export { upload as multerUpload };
 export default upload;

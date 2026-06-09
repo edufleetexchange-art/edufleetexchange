@@ -596,11 +596,23 @@ export const getApplications = async (req: AuthRequest, res: Response) => {
       return res.status(403).json({ success: false, error: 'Forbidden', code: 'FORBIDDEN' });
     }
 
+    // PII projection: never populate email/phone on listing endpoints by
+    // default. Institutes / admins get name+experience+subjects to evaluate
+    // the application; full contact details should require an explicit
+    // "view contact" endpoint, payment, or a post-shortlist state. Teachers
+    // reading their own applications get their own data, which is fine.
+    const teacherProjection = userRole === 'teacher' || userRole === 'admin'
+      ? 'name email phone location experience qualifications subjects avatar bio'
+      : 'name location experience qualifications subjects avatar bio';
+    const consultantProjection = userRole === 'admin'
+      ? 'name email phone'
+      : 'name';
+
     const applications = await Application.find(query)
       .sort('-appliedDate')
-      .populate('teacherId', 'name email phone location experience qualifications subjects avatar bio')
+      .populate('teacherId', teacherProjection)
       .populate('jobId', 'title department location salary employmentType')
-      .populate('submittedByConsultantId', 'name email phone');
+      .populate('submittedByConsultantId', consultantProjection);
 
     // Enrich consultant-submitted apps with the consultant's agencyName.
     const consultantIds = applications
