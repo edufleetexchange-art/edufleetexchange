@@ -3,7 +3,11 @@ import { listTeachers, getTeacher, patchConsultantConsent } from '../controllers
 import { authenticate } from '../middleware/auth.js';
 
 const router = express.Router();
-router.get('/', listTeachers);
+
+// Listing teachers reveals personal contact data — must be authenticated.
+// Anonymous visitors can still see jobs and aggregated stats; they cannot
+// enumerate the teacher directory.
+router.get('/', authenticate, listTeachers);
 router.patch('/me/consultant-consent', authenticate, patchConsultantConsent);
-router.get('/:id', getTeacher);
+router.get('/:id', authenticate, getTeacher);
 export default router;

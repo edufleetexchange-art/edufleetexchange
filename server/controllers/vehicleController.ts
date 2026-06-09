@@ -349,8 +349,24 @@ export const updateVehicle = async (req: AuthRequest, res: Response): Promise<vo
       return;
     }
 
-    // Update vehicle
-    Object.assign(vehicle, req.body);
+    // Allowlist: a non-admin owner may edit cosmetic / descriptive fields only.
+    // Server-controlled trust fields (status, isPriority, sellerId, assistedBy,
+    // approvedBy, approvedAt, views, etc.) are NEVER taken from the request
+    // body — otherwise an owner could self-approve their own pending listing.
+    const ALLOWED_OWNER_FIELDS = [
+      'title', 'description', 'category', 'make', 'model', 'year',
+      'fuelType', 'transmission', 'seatingCapacity', 'price', 'location',
+      'condition', 'mileage', 'features', 'images', 'thumbnail',
+    ] as const;
+    const ALLOWED_ADMIN_EXTRA = ['status', 'isPriority', 'rejectionReason'] as const;
+    const allowed = isAdmin
+      ? [...ALLOWED_OWNER_FIELDS, ...ALLOWED_ADMIN_EXTRA]
+      : ALLOWED_OWNER_FIELDS;
+    for (const key of allowed) {
+      if (Object.prototype.hasOwnProperty.call(req.body ?? {}, key)) {
+        (vehicle as any)[key] = (req.body as any)[key];
+      }
+    }
     await vehicle.save();
 
     res.status(200).json({

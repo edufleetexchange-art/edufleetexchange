@@ -1,5 +1,6 @@
 import express from 'express';
 import { authenticate, requireRole } from '../middleware/auth.js';
+import { adAnalyticsLimiter, adRequestLimiter } from '../middleware/adAnalyticsLimit.js';
 import {
   // Ad management (Admin)
   getAllAds,
@@ -26,12 +27,14 @@ const router = express.Router();
 // Get ads by placement (for displaying ads on frontend)
 router.get('/placement/:placement', getAdsByPlacement);
 
-// Record impression/click (analytics)
-router.post('/:id/impression', recordImpression);
-router.post('/:id/click', recordClick);
+// Record impression/click (analytics) — heavily rate-limited per-IP+ad so
+// counters can't be pumped to defraud advertisers.
+router.post('/:id/impression', adAnalyticsLimiter, recordImpression);
+router.post('/:id/click', adAnalyticsLimiter, recordClick);
 
-// Submit ad request (contact form)
-router.post('/requests', submitAdRequest);
+// Submit ad request (contact form) — rate-limited per-IP because this is a
+// public lead inbox that emails internally.
+router.post('/requests', adRequestLimiter, submitAdRequest);
 
 // ============ ADMIN ROUTES ============
 
