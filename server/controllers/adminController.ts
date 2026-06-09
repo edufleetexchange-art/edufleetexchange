@@ -473,9 +473,19 @@ export const createUser = async (req: AuthRequest, res: Response): Promise<void>
       });
     }
 
+    // Project the response — never echo password / token-version / internal
+    // flags back over the wire, even if the model accidentally serializes them.
+    const safeAccount = (() => {
+      const a: any = bundle.account?.toObject ? bundle.account.toObject() : { ...(bundle.account as any) };
+      delete a.password;
+      delete a.__v;
+      return a;
+    })();
+    const safeBundle: any = { ...bundle, account: safeAccount };
+
     res.status(201).json({
       success: true,
-      data: bundle,
+      data: safeBundle,
       message: 'User created successfully',
       timestamp: new Date().toISOString(),
     });

@@ -55,22 +55,60 @@ export const createJob = async (req: AuthRequest, res: Response) => {
       }
     }
 
+    // Only institutes can post jobs in their own name. Admins/sales can list on
+    // behalf of a real institute account — assert the target is actually an
+    // institute (so a misclick doesn't bind a job to a vendor or teacher account
+    // and break every downstream join).
     let instituteId = userId;
     let instituteName = (user as any).instituteName || user.name;
     let contactEmail = user.email;
 
-    // If sales or admin, allow providing instituteId (listing on behalf of school)
-    if ((user.role === 'admin' || user.role === 'sales') && req.body.instituteId) {
-      const actualInstitute = await Account.findById(req.body.instituteId);
-      if (actualInstitute) {
-        instituteId = actualInstitute._id.toString();
-        instituteName = (actualInstitute as any).instituteName || actualInstitute.name;
-        contactEmail = actualInstitute.email;
+    if (user.role === 'admin' || user.role === 'sales') {
+      // Staff MUST supply a target institute id when posting on behalf.
+      const targetId = req.body.instituteId;
+      if (!targetId || typeof targetId !== 'string' || !mongoose.Types.ObjectId.isValid(targetId)) {
+        return res.status(400).json({
+          success: false,
+          error: 'instituteId is required when posting on behalf of an institute',
+          code: 'VALIDATION_ERROR',
+        });
       }
+      const actualInstitute = await Account.findById(targetId);
+      if (!actualInstitute || actualInstitute.role !== 'institute') {
+        return res.status(400).json({
+          success: false,
+          error: 'instituteId must refer to an active institute account',
+          code: 'VALIDATION_ERROR',
+        });
+      }
+      instituteId = actualInstitute._id.toString();
+      instituteName = (actualInstitute as any).instituteName || actualInstitute.name;
+      contactEmail = actualInstitute.email;
+    } else if (user.role !== 'institute') {
+      return res.status(403).json({
+        success: false,
+        error: 'Only institutes can post jobs',
+        code: 'FORBIDDEN',
+      });
     }
 
+    // Allowlist of fields a client may set on a job — protects server-managed
+    // fields (status, isPriority, applicationsCount, views, contactEmail, etc.).
     const jobData = {
-      ...req.body,
+      title: req.body.title,
+      description: req.body.description,
+      subjects: req.body.subjects,
+      qualification: req.body.qualification,
+      experience: req.body.experience,
+      salary: req.body.salary,
+      location: req.body.location,
+      department: req.body.department,
+      employmentType: req.body.employmentType,
+      type: req.body.type,
+      deadline: req.body.deadline,
+      requirements: req.body.requirements,
+      responsibilities: req.body.responsibilities,
+      benefits: req.body.benefits,
       instituteId,
       instituteName,
       contactEmail,

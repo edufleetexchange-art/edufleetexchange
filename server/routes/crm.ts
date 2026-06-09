@@ -1,5 +1,5 @@
 import express from 'express';
-import { authenticate } from '../middleware/auth.js';
+import { authenticate, requireRole } from '../middleware/auth.js';
 import {
   getLeadActivities,
   createActivity,
@@ -10,7 +10,10 @@ import {
 
 const router = express.Router();
 
-router.use(authenticate);
+// CRM data (leads, tasks, activities) belongs to the sales / marketing org.
+// Any other authenticated account (teachers, vendors, etc.) must not be able
+// to read or write this surface.
+router.use(authenticate, requireRole(['admin', 'marketing', 'sales']));
 
 router.get('/leads/:leadId/activities', getLeadActivities);
 router.post('/activities', createActivity);

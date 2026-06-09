@@ -13,19 +13,20 @@ import {
   resetPassword,
 } from '../controllers/authController.js';
 import { authenticate } from '../middleware/auth.js';
+import { loginLimiter, forgotPasswordLimiter, signupLimiter } from '../middleware/rateLimit.js';
 
 const router = express.Router();
 
-router.post('/institute/signup', signupInstitute);
-router.post('/teacher/signup', signupTeacher);
-router.post('/vendor/signup', signupVendor);
-router.post('/consultant/signup', signupConsultant);
-router.post('/login', login);
+router.post('/institute/signup', signupLimiter, signupInstitute);
+router.post('/teacher/signup', signupLimiter, signupTeacher);
+router.post('/vendor/signup', signupLimiter, signupVendor);
+router.post('/consultant/signup', signupLimiter, signupConsultant);
+router.post('/login', loginLimiter, login);
 router.post('/logout', authenticate, logout);
 router.get('/me', authenticate, me);
-router.get('/validate', validateToken);
+router.get('/validate', loginLimiter, validateToken);
 router.post('/refresh', authenticate, refreshToken);
-router.post('/forgot-password', forgotPassword);
-router.post('/reset-password', resetPassword);
+router.post('/forgot-password', forgotPasswordLimiter, forgotPassword);
+router.post('/reset-password', loginLimiter, resetPassword);
 
 export default router;

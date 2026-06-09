@@ -104,6 +104,17 @@ export const togglePlanStatus = async (req: Request, res: Response) => {
 
 export const getUserSubscription = async (req: Request, res: Response) => {
   try {
+    // Object-level authZ: a user may only read their own subscription. Admins
+    // can read any. Without this, any logged-in account can enumerate every
+    // other user's plan + usage by guessing IDs.
+    const caller = (req as any).account as { id?: string; role?: string } | undefined;
+    if (!caller) {
+      return res.status(401).json({ error: 'Not authenticated' });
+    }
+    if (String(caller.id) !== String(req.params.userId) && caller.role !== 'admin') {
+      return res.status(403).json({ error: 'Forbidden' });
+    }
+
     const account = await Account.findById(req.params.userId);
 
     if (!account) {
@@ -406,17 +417,24 @@ export const continueOwnSubscription = async (req: AuthRequest, res: Response) =
     const userId = req.account?.id;
     if (!userId) return res.status(401).json({ error: 'User ID not found' });
 
-    const { newEndDate, notes } = req.body;
-    const sub = await Subscription.findOne({ accountId: userId });
-
+    // Self-service "continue" must not accept a client-supplied endDate — that
+    // would let a user extend their subscription forever for free. Derive the
+    // new endDate from the plan's duration server-side. A real payment flow
+    // (or admin) is the only way to extend beyond that.
+    const sub = await Subscription.findOne({ accountId: userId }).populate('planId');
     if (!sub) return res.status(404).json({ error: 'User subscription not found' });
 
-    sub.endDate = newEndDate;
+    const plan: any = sub.planId;
+    const days = (plan && typeof plan === 'object' && typeof plan.duration === 'number')
+      ? plan.duration
+      : 30;
+    const base = sub.endDate && new Date(sub.endDate).getTime() > Date.now() ? new Date(sub.endDate) : new Date();
+    const newEnd = new Date(base.getTime() + days * 24 * 60 * 60 * 1000);
+
+    sub.endDate = newEnd;
     sub.status = 'active';
-    if (notes) sub.notes = notes;
 
     await sub.save();
-    await sub.populate('planId');
 
     res.json(sub);
   } catch (error: any) {
