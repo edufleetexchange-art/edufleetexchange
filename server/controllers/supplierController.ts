@@ -100,7 +100,9 @@ export const getAllSuppliers = async (req: AuthRequest, res: Response) => {
       .sort(sort as string)
       .skip(skip)
       .limit(limitNum)
-      .populate({ path: 'createdBy', select: 'name email role' })
+      // Public directory: never expose the creator's internal account email.
+      // We only need name + role to render. (isPaid is derived below.)
+      .populate({ path: 'createdBy', select: 'name role' })
       .lean();
 
     const total = await Supplier.countDocuments(query);
@@ -139,9 +141,13 @@ export const getAllSuppliers = async (req: AuthRequest, res: Response) => {
 // Get single supplier by ID
 export const getSupplierById = async (req: AuthRequest, res: Response) => {
   try {
+    // Admins may see the creator's internal contact; everyone else gets only
+    // name + role. The business contact (supplier.email/phone) is intentionally
+    // public for featured vendors — the gate below still blocks unpaid ones.
+    const isAdminCaller = req.account?.role === 'admin';
     const supplier = await Supplier.findById(req.params.id).populate({
       path: 'createdBy',
-      select: 'name email phone role',
+      select: isAdminCaller ? 'name email phone role' : 'name role',
     });
 
     if (!supplier) {

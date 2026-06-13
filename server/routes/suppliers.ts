@@ -9,19 +9,20 @@ import {
   getSupplierStats,
   toggleVerification,
 } from '../controllers/supplierController.js';
-import { authenticate, requireRole } from '../middleware/auth.js';
+import { authenticate, optionalAuthenticate, requireRole } from '../middleware/auth.js';
 
 const router = express.Router();
 
-// Public routes
-router.get('/', getAllSuppliers);
+// Public routes — optionalAuthenticate so admins get the creator's internal
+// contact while anonymous/other callers get only name + role.
+router.get('/', optionalAuthenticate, getAllSuppliers);
 
 // Protected specific routes MUST come before :id
 router.get('/stats', authenticate, requireRole('admin'), getSupplierStats);
 router.get('/my/listings', authenticate, requireRole(['admin', 'vendor']), getMySuppliers);
 
 // Public dynamic route
-router.get('/:id', getSupplierById);
+router.get('/:id', optionalAuthenticate, getSupplierById);
 
 // Protected CRUD operations
 router.post('/', authenticate, requireRole(['admin', 'vendor', 'sales']), createSupplier);

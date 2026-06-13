@@ -9,7 +9,7 @@ import {
   getRecentListings,
   getMyListings,
 } from '../controllers/vehicleController.js';
-import { authenticate, requireRole } from '../middleware/auth.js';
+import { authenticate, optionalAuthenticate, requireRole } from '../middleware/auth.js';
 
 const router = express.Router();
 
@@ -20,9 +20,10 @@ router.get('/recent', getRecentListings);
 // Protected routes - must be before :id route
 router.get('/my/listings', authenticate, requireRole(['institute', 'sales', 'admin']), getMyListings);
 
-// General routes
-router.get('/', getVehicles);
-router.get('/:id', getVehicle);
+// General routes — optionalAuthenticate so logged-in buyers see seller contact
+// while anonymous callers get it masked (see stripSellerPIIForAnon).
+router.get('/', optionalAuthenticate, getVehicles);
+router.get('/:id', optionalAuthenticate, getVehicle);
 
 // Protected CRUD operations
 router.post('/', authenticate, requireRole(['institute', 'sales', 'admin']), createVehicle);
