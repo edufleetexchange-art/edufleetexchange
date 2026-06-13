@@ -8,6 +8,19 @@ import { AuthRequest } from '../middleware/auth.js';
 import { ISubscriptionPlan } from '../models/SubscriptionPlan.js';
 import { tryConsume, releaseReservation } from '../services/subscriptionService.js';
 
+/**
+ * Seller email/phone are contact PII. Anonymous (unauthenticated) callers must
+ * never receive them — this mirrors the UI's "Login to view seller details"
+ * mask, but enforces it server-side so the raw API can't be scraped. Any
+ * authenticated user (a prospective buyer) still gets the contact info, as do
+ * the owner and admins.
+ */
+function stripSellerPIIForAnon<T extends Record<string, any>>(vehicle: T, account?: { id?: string; role?: string }): T {
+  if (account) return vehicle; // authenticated → allowed to contact the seller
+  const { sellerEmail, sellerPhone, ...rest } = vehicle as any;
+  return rest as T;
+}
+
 // Helper to get data delay date
 const getDataDelayDate = (user: any): Date | null => {
   if (!user || user.role === 'admin') return null;
@@ -115,7 +128,7 @@ export const getVehicles = async (req: AuthRequest, res: Response): Promise<void
     res.status(200).json({
       success: true,
       data: {
-        items: vehicles,
+        items: vehicles.map((v) => stripSellerPIIForAnon(v as any, req.account)),
         total,
         page: pageNum,
         pageSize: limit,
@@ -187,7 +200,7 @@ export const getVehicle = async (req: AuthRequest, res: Response): Promise<void>
 
     res.status(200).json({
       success: true,
-      data: vehicle,
+      data: stripSellerPIIForAnon(vehicle.toObject(), req.account),
       timestamp: new Date().toISOString(),
     });
   } catch (error) {

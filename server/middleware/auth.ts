@@ -37,6 +37,31 @@ export async function authenticate(req: AuthRequest, res: Response, next: NextFu
   }
 }
 
+/**
+ * Optional authentication. Populates req.account/profile/subscription when a
+ * valid token is present, but NEVER blocks the request — anonymous callers
+ * pass straight through. Use on public read endpoints that want to vary the
+ * response by auth state (e.g. show seller contact to logged-in buyers, hide
+ * it from anonymous scrapers).
+ */
+export async function optionalAuthenticate(req: AuthRequest, _res: Response, next: NextFunction): Promise<void> {
+  try {
+    const token =
+      req.header('Authorization')?.replace('Bearer ', '') || (req as any).cookies?.token;
+    if (!token) return next();
+    const payload = jwt.verify(token, JWT_CONFIG.secret) as { accountId: string };
+    const bundle = await loadBundle(payload.accountId);
+    if (bundle.account && bundle.account.isActive) {
+      req.account = bundle.account;
+      req.profile = bundle.profile;
+      req.subscription = bundle.subscription;
+    }
+  } catch {
+    // Invalid/expired token on a public route → treat as anonymous, don't 401.
+  }
+  next();
+}
+
 export function requireRole(role: AccountRole | AccountRole[]) {
   const allowed = Array.isArray(role) ? role : [role];
   return (req: AuthRequest, res: Response, next: NextFunction) => {
