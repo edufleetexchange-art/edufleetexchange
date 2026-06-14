@@ -26,7 +26,11 @@ export interface INotification extends Document {
     | 'interview_invitation'
     | 'interview_rescheduled'
     | 'interview_canceled'
-    | 'placement_completed';
+    | 'placement_completed'
+    | 'alert_teacher_available'
+    | 'alert_vehicle_available'
+    | 'alert_custom_match'
+    | 'alert_demand_lead';
   title: string;
   message: string;
   priority?: 'low' | 'medium' | 'high';
@@ -72,6 +76,10 @@ const notificationSchema = new Schema<INotification>(
         'interview_rescheduled',
         'interview_canceled',
         'placement_completed',
+        'alert_teacher_available',
+        'alert_vehicle_available',
+        'alert_custom_match',
+        'alert_demand_lead',
       ],
     },
     title: {

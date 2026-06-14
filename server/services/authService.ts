@@ -7,6 +7,7 @@ import ConsultantProfile from '../models/ConsultantProfile.js';
 import StaffProfile from '../models/StaffProfile.js';
 import Subscription from '../models/Subscription.js';
 import SubscriptionPlan from '../models/SubscriptionPlan.js';
+import { fanOutTeacherSafe } from './alertService.js';
 
 type Address = { street: string; city: string; state: string; pincode: string; country?: string };
 
@@ -146,7 +147,7 @@ export interface TeacherSignupInput {
 export async function signupTeacher(input: TeacherSignupInput): Promise<Bundle> {
   const session = await mongoose.startSession();
   try {
-    return await session.withTransaction(async () => {
+    const bundle = await session.withTransaction(async () => {
       const [account] = await Account.create(
         [
           {
@@ -192,6 +193,24 @@ export async function signupTeacher(input: TeacherSignupInput): Promise<Bundle> 
         subscription: subscription.toJSON(),
       };
     });
+
+    // After the teacher is committed and visible, fan out to matching demand
+    // alerts (and the founder's lead inbox). Awaited but failure-safe — it can
+    // never block or break the signup. This is what makes "notify me when a
+    // maths teacher is available" actually fire.
+    const a: any = bundle.account;
+    const t: any = bundle.profile;
+    await fanOutTeacherSafe({
+      accountId: String(a.id ?? a._id),
+      name: a.name,
+      subjects: t.subjects,
+      experience: t.experience,
+      location: t.location,
+      preferredLocation: t.preferredLocation,
+      qualifications: t.qualifications,
+    });
+
+    return bundle;
   } finally {
     session.endSession();
   }
