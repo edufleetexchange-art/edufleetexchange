@@ -1,4 +1,4 @@
-import rateLimit from 'express-rate-limit';
+import rateLimit, { ipKeyGenerator } from 'express-rate-limit';
 
 /**
  * Per-IP limit on ad impression / click reports. Without this, anyone can
@@ -14,7 +14,9 @@ export const adAnalyticsLimiter = rateLimit({
   standardHeaders: 'draft-7',
   legacyHeaders: false,
   // Bucket by IP + ad id so one fraudster can't hide behind a shared NAT.
-  keyGenerator: (req: any) => `${req.ip}:${req.params?.id ?? 'none'}`,
+  // ipKeyGenerator normalizes IPv6 to a subnet so v6 clients can't trivially
+  // rotate addresses to bypass the limit (raw req.ip would allow that).
+  keyGenerator: (req: any, res: any) => `${ipKeyGenerator(req.ip, 56)}:${req.params?.id ?? 'none'}`,
   message: { success: false, error: 'Too many requests' },
   skip: () => process.env.NODE_ENV === 'test',
 });
