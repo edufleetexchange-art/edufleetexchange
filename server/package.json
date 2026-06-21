@@ -14,6 +14,8 @@
     "test:watch": "vitest",
     "seed": "tsx ./scripts/seedData/index.ts",
     "seed:accounts": "tsx ./scripts/seedData/accounts.ts",
+    "seed:demo": "tsx ./scripts/seedData/demo.ts",
+    "seed:prod": "tsx ./scripts/seedData/prod.ts",
     "seed:reset": "tsx ./scripts/seedData/reset.ts && npm run seed"
   },
   "engines": {
