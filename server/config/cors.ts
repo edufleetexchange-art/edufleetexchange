@@ -19,7 +19,13 @@ export const corsConfig: CorsOptions = {
       origin.includes(".vercel.app") &&
       origin.includes("edufleetexchange");
 
-    if (allowedOrigins.includes(origin) || isVercelPreview) {
+    // ✅ In non-production, allow ANY localhost/127.0.0.1 port. Vite falls back
+    // to 3001, 3002… whenever the default port is busy, and hardcoding a single
+    // port silently breaks local dev with a CORS error.
+    const isLocalDev =
+      !isProduction && /^http:\/\/(localhost|127\.0\.0\.1):\d+$/.test(origin);
+
+    if (allowedOrigins.includes(origin) || isVercelPreview || isLocalDev) {
       return callback(null, true);
     }
 
