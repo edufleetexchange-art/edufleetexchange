@@ -17,6 +17,7 @@
     "seed:demo": "tsx ./scripts/seedData/demo.ts",
     "seed:prod": "tsx ./scripts/seedData/prod.ts",
     "seed:dev-extra": "tsx ./scripts/seedData/devExtra.ts",
+    "seed:categories": "tsx ./scripts/seedData/categories.ts",
     "seed:reset": "tsx ./scripts/seedData/reset.ts && npm run seed"
   },
   "engines": {
