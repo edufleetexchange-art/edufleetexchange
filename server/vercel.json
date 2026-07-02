@@ -1,6 +1,5 @@
 {
   "version": 2,
-  "name": "edufleet-exchange-server",
   "builds": [
     {
       "src": "dist/index.js",
@@ -12,14 +11,5 @@
       "src": "/(.*)",
       "dest": "dist/index.js"
     }
-  ],
-  "rewrites": [
-    {
-      "source": "/(.*)",
-      "destination": "/index.html"
-    }
-  ],
-  "env": {
-    "NODE_ENV": "production"
-  }
+  ]
 }

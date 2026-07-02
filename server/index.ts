@@ -86,18 +86,25 @@ app.use(pinoHttp({
 // Apply app configuration (middleware, security headers, etc.)
 configureApp(app);
 
-// Connect to database
-await connectDB();
-
-// Create uploads directory if it doesn't exist
-const uploadsDir = path.join(__dirname, '../uploads');
-if (!fs.existsSync(uploadsDir)) {
-  fs.mkdirSync(uploadsDir, { recursive: true });
-  logger.info('Created uploads directory');
+// Lazy, cached DB connection. Works for both the local long-running server AND
+// Vercel serverless, where each cold start must reuse a single pooled connection
+// (eagerly connecting at import would exhaust Atlas connections under load).
+let dbReady: Promise<unknown> | null = null;
+function ensureDB(): Promise<unknown> {
+  if (!dbReady) dbReady = connectDB();
+  return dbReady;
 }
 
-// Serve static files (uploads)
-app.use('/uploads', express.static(uploadsDir));
+// Uploads dir + static serving only make sense on a persistent host — Vercel's
+// serverless filesystem is read-only/ephemeral, so skip it there.
+const uploadsDir = path.join(__dirname, '../uploads');
+if (!process.env.VERCEL) {
+  if (!fs.existsSync(uploadsDir)) {
+    fs.mkdirSync(uploadsDir, { recursive: true });
+    logger.info('Created uploads directory');
+  }
+  app.use('/uploads', express.static(uploadsDir));
+}
 
 // Health check endpoint
 app.get('/health', (req: Request, res: Response) => {
@@ -186,61 +193,40 @@ app.use((err: any, req: express.Request, res: express.Response, next: express.Ne
   });
 });
 
-// Start server
-const server = app.listen(ENV.PORT, () => {
-  console.log('╔════════════════════════════════════════╗');
-  console.log(`║  🚀 Server running on port ${ENV.PORT}       ║`);
-  console.log(`║  📦 Environment: ${ENV.NODE_ENV.padEnd(18)}║`);
-  console.log(`║  🌐 API: http://localhost:${ENV.PORT}${apiPrefix}  ║`);
-  console.log('╚════════════════════════════════════════╝');
-  console.log('\n📋 Registered API routes:');
-  console.log(`  ${apiPrefix}/auth`);
-  console.log(`  ${apiPrefix}/public          (GET /categories, GET /settings)`);
-  console.log(`  ${apiPrefix}/vehicles`);
-  console.log(`  ${apiPrefix}/admin           (GET/POST /categories, GET/PUT /settings)`);
-  console.log(`  ${apiPrefix}/jobs`);
-  console.log(`  ${apiPrefix}/suppliers`);
-  console.log(`  ${apiPrefix}/notifications`);
-  console.log(`  ${apiPrefix}/upload`);
-  console.log(`  ${apiPrefix}/subscriptions`);
-  console.log(`  ${apiPrefix}/marketing`);
-  console.log(`  ${apiPrefix}/sales`);
-
-  console.log(`  ${apiPrefix}/ads`);
-  console.log(`  ${apiPrefix}/access`);
-  console.log(`  ${apiPrefix}/crm`);
-  console.log(`  ${apiPrefix}/accounts`);
-  console.log(`  ${apiPrefix}/teachers`);
-  console.log(`  ${apiPrefix}/institutes`);
-  console.log(`  ${apiPrefix}/vendors`);
-  console.log(`  ${apiPrefix}/reports`);
-  console.log(`  ${apiPrefix}/recommendations  (GET /jobs, GET /teachers)`);
-  console.log(`  ${apiPrefix}/reviews         (GET /, GET /stats, POST /, PATCH /:id, DELETE /:id)`);
-  console.log(`  ${apiPrefix}/verifications   (POST /, GET /me, GET /admin, PATCH /admin/:id)`);
-});
-
-// Graceful shutdown
-const gracefulShutdown = async (signal: string) => {
-  logger.warn({ signal }, 'Signal received. Starting graceful shutdown...');
-
-  server.close(async () => {
-    logger.info('HTTP server closed');
-
-    await disconnectDB();
-
-    logger.info('Graceful shutdown complete');
-    process.exit(0);
+// ─── Persistent-host startup (local dev, Render) ─────────────────────────────
+// On Vercel we never call listen(); we export a serverless handler instead (below).
+if (!process.env.VERCEL) {
+  await ensureDB();
+  const server = app.listen(ENV.PORT, () => {
+    console.log('╔════════════════════════════════════════╗');
+    console.log(`║  🚀 Server running on port ${ENV.PORT}       ║`);
+    console.log(`║  📦 Environment: ${ENV.NODE_ENV.padEnd(18)}║`);
+    console.log(`║  🌐 API: http://localhost:${ENV.PORT}${apiPrefix}  ║`);
+    console.log('╚════════════════════════════════════════╝');
   });
 
-  // Force shutdown after 10 seconds
-  setTimeout(() => {
-    logger.error('Forced shutdown after timeout');
-    process.exit(1);
-  }, 10000);
+  const gracefulShutdown = async (signal: string) => {
+    logger.warn({ signal }, 'Signal received. Starting graceful shutdown...');
+    server.close(async () => {
+      logger.info('HTTP server closed');
+      await disconnectDB();
+      logger.info('Graceful shutdown complete');
+      process.exit(0);
+    });
+    setTimeout(() => {
+      logger.error('Forced shutdown after timeout');
+      process.exit(1);
+    }, 10000);
+  };
+  process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
+  process.on('SIGINT', () => gracefulShutdown('SIGINT'));
+}
+
+// ─── Vercel serverless entry ─────────────────────────────────────────────────
+// Ensure the (cached) DB connection is up, then hand the request to Express.
+const serverlessHandler = async (req: Request, res: Response) => {
+  await ensureDB();
+  return (app as unknown as (req: Request, res: Response) => void)(req, res);
 };
 
-// Handle shutdown signals
-process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
-process.on('SIGINT', () => gracefulShutdown('SIGINT'));
-
-export default app;
+export default serverlessHandler;
