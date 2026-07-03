@@ -1,85 +1,97 @@
-# Git-based deploys — dev / stage / prod (no CLI deploys)
+# Deploy — all on Vercel (dev / stage / prod), Render retired
 
-Goal: **merge a PR into `dev` / `stage` / `prod` → Vercel auto-deploys that
-environment.** Env vars are **isolated per environment** — changing one env's
-config never touches the others.
+**Goal:** both the frontend AND the backend run on **Vercel**, with three
+environments (dev / stage / prod), each frontend talking to its **own**
+backend, each backend on its **own** database. Env vars are **isolated per
+environment** — changing one never touches the others. **Render is no longer
+used.**
 
-## How the branch → deploy gating works (already in code)
-
-Both `vercel.json` files now include:
-
-```json
-"git": { "deploymentEnabled": { "main": false, "dev": true, "stage": true, "prod": true } }
+```
+                 dev branch          stage branch         prod branch
+frontend  ┌──────────────────┐ ┌──────────────────┐ ┌──────────────────┐
+(Vercel)  │ dev.edufleet…    │ │ stage.edufleet…  │ │ www.edufleet…    │
+          └────────┬─────────┘ └────────┬─────────┘ └────────┬─────────┘
+                   │ VITE_API_BASE_URL   │                    │
+          ┌────────▼─────────┐ ┌────────▼─────────┐ ┌────────▼─────────┐
+backend   │ api-dev.edufleet…│ │ api-stage.edufl… │ │ api.edufleet…    │
+(Vercel)  └────────┬─────────┘ └────────┬─────────┘ └────────┬─────────┘
+                   │ MONGODB_URI         │                    │
+             edu_fleet_exchange_dev  edu_fleet_exchange_test  edu_fleet_prod
 ```
 
-- Push/merge to `dev`, `stage`, `prod` → triggers a deploy for that environment.
-- `main` is the integration trunk → **does not** auto-deploy.
-- **No more `vercel deploy` from the CLI** — Git is the only deploy trigger.
+## What's already done in code
+- **Backend is serverless-ready:** `server/index.ts` exports a serverless
+  handler; `app.listen()`, graceful-shutdown, and `/uploads` static serving are
+  all guarded by `if (!process.env.VERCEL)`. Uploads use in-memory storage →
+  base64 (no disk needed). DB connection is cached across invocations.
+- **`server/vercel.json`** builds `dist/index.js` via `@vercel/node` and gates
+  deploys to the `dev`/`stage`/`prod` branches (`main` does not deploy).
+- **Frontend** resolves its backend URL per branch in `vite.config.ts` and via a
+  per-environment `VITE_API_BASE_URL` env var (env var wins). No Render rewrite.
+- **CORS** (`server/config/cors.ts`) allows any `*.edufleetexchange.com` https
+  origin and any `*edufleetexchange*.vercel.app` deploy URL, so each frontend
+  can call its own-environment backend cross-origin.
 
-## Dashboard setup (once per project — do for BOTH projects)
+## Dashboard setup — do once per project (TWO Vercel projects)
 
-Projects: `edufleetexchange-ui` (frontend) and the backend project
-(the CLI made one called `server` — connect it to Git, or re-import the repo
-with **Root Directory = `server`**).
+### A. Backend project (repo `edufleetexchange`, **Root Directory = `server`**)
+1. **New Project** → import the `edufleetexchange` repo → set **Root Directory =
+   `server`**.
+2. **Production Branch** = `prod` (Settings → Git).
+3. **Custom Environments** (Settings → Environments): create `development` → git
+   branch `dev`; `staging` → git branch `stage`. (Production is built-in → `prod`.)
+4. **Deployment Protection** → turn **OFF Vercel Authentication**. ⚠️ Required —
+   otherwise the API returns 302/401 to the browser and nothing works.
+5. **Domains** (recommended, gives stable URLs): attach
+   `api-dev.edufleetexchange.com` → development, `api-stage.…` → staging,
+   `api.edufleetexchange.com` → production. (Or skip and use the Vercel-generated
+   per-env URLs — then paste those into the frontend's `VITE_API_BASE_URL`.)
 
-1. **Connect to Git**: Project → Settings → Git → connect the GitHub repo.
-   - Frontend repo → `edufleetexchange_ui`
-   - Backend repo → `edufleetexchange`, **Root Directory = `server`**
-2. **Production Branch**: Settings → Git → set **Production Branch = `prod`**.
-   (So only `prod` deploys to production; `dev`/`stage` are their own envs.)
-3. **Custom Environments**: Settings → Environments → create:
-   - **`development`** → bound to git branch **`dev`**
-   - **`staging`** → bound to git branch **`stage`**
-   (Production is built-in, bound to `prod`.)
-4. **Deployment Protection** (backend only): Settings → Deployment Protection →
-   turn **off Vercel Authentication** so the public API is reachable.
+### B. Frontend project (repo `edufleetexchange_ui`, root = repo root)
+1. **New Project** → import `edufleetexchange_ui`.
+2. **Production Branch** = `prod`; create the same `development`/`staging`
+   custom environments bound to `dev`/`stage`.
+3. **Domains:** `dev.edufleetexchange.com` → development, `stage.…` → staging,
+   `www.edufleetexchange.com` → production.
 
 ## ⚠️ Env-var isolation — the important part
-
-Vercel env vars are **scoped to an environment**. To keep them isolated, when
-you add each variable choose the **specific environment**, NOT "All
-Environments". Set the *same key* three times with *different values*:
+Vercel env vars are **scoped to an environment**. When adding each variable pick
+the **specific environment**, NOT "All Environments". Set the same key three
+times with different values.
 
 ### Backend project — per environment
 | Key | development | staging | production |
 |---|---|---|---|
 | `MONGODB_URI` | `…/edu_fleet_exchange_dev` (iyowv1o) | `…/edu_fleet_exchange_test` (iyowv1o) | `…/edu_fleet_prod` (mirs6yp) |
-| `JWT_SECRET` | dev secret | stage secret (distinct) | prod secret (distinct) |
+| `JWT_SECRET` | dev secret (≥32 bytes) | stage secret (distinct) | prod secret (distinct) |
 | `NODE_ENV` | production | production | production |
-| `CLIENT_URL` | dev frontend URL | stage frontend URL | `https://www.edufleetexchange.com` |
+| `CLIENT_URL` | `https://dev.edufleetexchange.com` | `https://stage.edufleetexchange.com` | `https://www.edufleetexchange.com` |
 | SMTP/EMAIL_* | as needed | as needed | real mail creds |
 
 ### Frontend project — per environment
 | Key | development | staging | production |
 |---|---|---|---|
-| `VITE_API_BASE_URL` | dev backend URL | stage backend URL | prod backend URL |
-| `VITE_PAYMENT_*` | test/blank | test/blank | real (optional) |
+| `VITE_API_BASE_URL` | `https://api-dev.edufleetexchange.com/api` | `https://api-stage.edufleetexchange.com/api` | `https://api.edufleetexchange.com/api` |
 
-Because each value is bound to one environment, editing `development`'s
-`MONGODB_URI` has **zero effect** on `staging` or `production`. That's the
-guarantee you asked for.
+(If you skipped custom domains, paste each backend environment's Vercel-generated
+URL here instead — `.../api`.)
 
-## One code change still needed for per-env backends
-
-`edufleetexchange_ui/vercel.json` currently hardcodes the API rewrite to a
-single backend (Render). A hardcoded rewrite is shared across all environments,
-so it can't point dev/stage/prod at *different* backends. To make it per-env:
-
-- Remove the `/api/*` rewrite and have the frontend call the backend via
-  `VITE_API_BASE_URL` (set per environment, table above). The app already reads
-  `VITE_API_BASE_URL`.
-- Then the backend `cors` config must allow each frontend origin
-  (dev/stage/prod domains).
-
-Do this only once the per-env `VITE_API_BASE_URL` values are set — otherwise a
-missing value falls back to `localhost` and breaks the deployed site. (Ask me
-to make this change when you're ready.)
+Because each value is bound to one environment, editing `development`'s config
+has **zero effect** on `staging` or `production`.
 
 ## Promotion flow
 ```
 feature/* → PR → main   (CI runs, no deploy)
-main → PR → dev          → deploys DEVELOPMENT
+main → PR → dev          → deploys DEVELOPMENT (frontend + backend)
 dev  → PR → stage        → deploys STAGING
 stage→ PR → prod         → deploys PRODUCTION (www.edufleetexchange.com)
 ```
-CI (`.github/workflows/ci.yml`) gates every PR: build + test must pass before merge.
+CI (`.github/workflows/ci.yml`) gates every PR: build + test must pass first.
+
+## Serverless caveats to know
+- **Cold starts** exist on Vercel too, but are shorter than Render's free tier
+  and scale automatically. The cached Mongo connection keeps warm invocations fast.
+- **No local disk / no long-running work.** Fine here — uploads are base64, and
+  there are no cron/background jobs (the only timer is in the guarded shutdown path).
+- If you later add real file storage or scheduled jobs, use Vercel Blob and
+  Vercel Cron respectively — don't write to the function filesystem.
