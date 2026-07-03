@@ -1,0 +1,1 @@
+# static output placeholder — API-only service; all routes rewrite to /api/index
