@@ -27,32 +27,32 @@ function handleErr(res: Response, err: any, fallback = 500) {
 export const signupInstitute = async (req: Request, res: Response): Promise<void> => {
   try {
     const bundle = await authService.signupInstitute(req.body);
-    setAuthCookie(res, bundle.account.id, bundle.account.role);
-    res.status(201).json({ success: true, data: bundle, message: 'Institute registered', timestamp: new Date().toISOString() });
+    const token = setAuthCookie(res, bundle.account.id, bundle.account.role);
+    res.status(201).json({ success: true, data: { ...bundle, token }, message: 'Institute registered', timestamp: new Date().toISOString() });
   } catch (e) { handleErr(res, e); }
 };
 
 export const signupTeacher = async (req: Request, res: Response): Promise<void> => {
   try {
     const bundle = await authService.signupTeacher(req.body);
-    setAuthCookie(res, bundle.account.id, bundle.account.role);
-    res.status(201).json({ success: true, data: bundle, message: 'Teacher registered', timestamp: new Date().toISOString() });
+    const token = setAuthCookie(res, bundle.account.id, bundle.account.role);
+    res.status(201).json({ success: true, data: { ...bundle, token }, message: 'Teacher registered', timestamp: new Date().toISOString() });
   } catch (e) { handleErr(res, e); }
 };
 
 export const signupVendor = async (req: Request, res: Response): Promise<void> => {
   try {
     const bundle = await authService.signupVendor(req.body);
-    setAuthCookie(res, bundle.account.id, bundle.account.role);
-    res.status(201).json({ success: true, data: bundle, message: 'Vendor registered', timestamp: new Date().toISOString() });
+    const token = setAuthCookie(res, bundle.account.id, bundle.account.role);
+    res.status(201).json({ success: true, data: { ...bundle, token }, message: 'Vendor registered', timestamp: new Date().toISOString() });
   } catch (e) { handleErr(res, e); }
 };
 
 export const signupConsultant = async (req: Request, res: Response): Promise<void> => {
   try {
     const bundle = await authService.signupConsultant(req.body);
-    setAuthCookie(res, bundle.account.id, bundle.account.role);
-    res.status(201).json({ success: true, data: bundle, message: 'Consultant registered', timestamp: new Date().toISOString() });
+    const token = setAuthCookie(res, bundle.account.id, bundle.account.role);
+    res.status(201).json({ success: true, data: { ...bundle, token }, message: 'Consultant registered', timestamp: new Date().toISOString() });
   } catch (e) { handleErr(res, e); }
 };
 
@@ -64,8 +64,8 @@ export const login = async (req: Request, res: Response): Promise<void> => {
       return;
     }
     const bundle = await authService.login(email, password);
-    setAuthCookie(res, bundle.account.id, bundle.account.role);
-    res.status(200).json({ success: true, data: bundle, message: 'Login successful', timestamp: new Date().toISOString() });
+    const token = setAuthCookie(res, bundle.account.id, bundle.account.role);
+    res.status(200).json({ success: true, data: { ...bundle, token }, message: 'Login successful', timestamp: new Date().toISOString() });
   } catch (e) { handleErr(res, e); }
 };
 
