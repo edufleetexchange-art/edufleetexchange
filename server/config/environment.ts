@@ -30,8 +30,14 @@ export const ENV = {
   NODE_ENV: process.env.NODE_ENV || 'development',
   PORT: parseInt(process.env.PORT || '5000', 10),
 
-  // Database
-  MONGODB_URI: required('MONGODB_URI'),
+  // Database — tests connect via mongodb-memory-server (tests/setup.ts) and
+  // never read this value, but the module must be importable without a real
+  // URI in CI, where no .env exists. Same escape hatch as JWT_SECRET below.
+  MONGODB_URI:
+    process.env.MONGODB_URI ??
+    (process.env.NODE_ENV === 'test'
+      ? 'mongodb://127.0.0.1:27017/test-placeholder-never-used'
+      : required('MONGODB_URI')),
   // JWT — fail fast in every environment if the secret is missing, too short, or the well-known placeholder.
   JWT_SECRET: requiredSecret('JWT_SECRET', 32, ['your-secret-key-change-in-production', 'change-me', 'secret']),
   JWT_EXPIRES_IN: process.env.JWT_EXPIRES_IN || '7d',
