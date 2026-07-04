@@ -1,4 +1,5 @@
 import mongoose from 'mongoose';
+import { sendAlertMatchEmail, sendDemandLeadEmail } from '../utils/email.js';
 import Alert, { IAlert, TeacherCriteria } from '../models/Alert.js';
 import AlertMatch from '../models/AlertMatch.js';
 import Account from '../models/Account.js';
@@ -57,9 +58,19 @@ export function scoreTeacherForAlert(teacher: TeacherSupply, criteria: TeacherCr
 }
 
 /** Cached lookup of founder/admin account ids to receive demand leads. */
-async function getFounderAccountIds(): Promise<mongoose.Types.ObjectId[]> {
-  const admins = await Account.find({ role: 'admin', isActive: true }).select('_id').lean();
-  return admins.map((a: any) => a._id);
+async function getFounderAccounts(): Promise<Array<{ _id: mongoose.Types.ObjectId; email: string }>> {
+  const admins = await Account.find({ role: 'admin', isActive: true }).select('_id email').lean();
+  return admins.map((a: any) => ({ _id: a._id, email: a.email }));
+}
+
+/** Email delivery must never break a fan-out — log and continue. */
+async function safeEmail(task: Promise<void>, label: string): Promise<void> {
+  try {
+    await task;
+  } catch (err) {
+    // eslint-disable-next-line no-console
+    console.error(`[alertService] ${label} email failed:`, err);
+  }
 }
 
 /**
@@ -70,7 +81,7 @@ export async function fanOutTeacher(teacher: TeacherSupply): Promise<number> {
   const alerts = await Alert.find({ entityType: 'teacher', status: 'active' });
   if (!alerts.length) return 0;
 
-  const founderIds = await getFounderAccountIds();
+  const founders = await getFounderAccounts();
   let fired = 0;
 
   for (const alert of alerts) {
@@ -113,8 +124,27 @@ export async function fanOutTeacher(teacher: TeacherSupply): Promise<number> {
       });
     }
 
+    // 1b) Email the subscriber — alerts must reach people who don't log in
+    // daily. Only when the alert opted into the email channel.
+    if (alert.channels.includes('email')) {
+      const subscriber = await Account.findById(alert.accountId).select('email').lean();
+      if (subscriber?.email) {
+        const clientUrl = process.env.CLIENT_URL ?? 'https://www.edufleetexchange.com';
+        await safeEmail(
+          sendAlertMatchEmail(subscriber.email, {
+            alertLabel: alert.label,
+            matchLabel: teacherLabel,
+            subjects: subjectStr,
+            link: `${clientUrl}/teachers/${teacher.accountId}`,
+          }),
+          'subscriber match',
+        );
+      }
+    }
+
     // 2) Notify the founder/admin — this is the concierge lead: go place a teacher.
-    for (const fid of founderIds) {
+    for (const founder of founders) {
+      const fid = founder._id;
       // Don't double-notify if the founder IS the subscriber.
       if (String(fid) === String(alert.accountId)) continue;
       await Notification.create({
@@ -125,6 +155,12 @@ export async function fanOutTeacher(teacher: TeacherSupply): Promise<number> {
         priority: 'high',
         metadata: { alertId: String(alert._id), requesterAccountId: String(alert.accountId), teacherAccountId: teacher.accountId },
       });
+      if (founder.email) {
+        await safeEmail(
+          sendDemandLeadEmail(founder.email, { alertLabel: alert.label, matchLabel: teacherLabel, subjects: subjectStr }),
+          'demand lead',
+        );
+      }
     }
 
     alert.matchCount += 1;
