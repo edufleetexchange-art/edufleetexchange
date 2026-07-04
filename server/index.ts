@@ -4,6 +4,7 @@
  */
 
 import express, { Application, Request, Response } from 'express';
+import mongoose from 'mongoose';
 import dotenv from 'dotenv';
 import * as path from 'path';
 import * as fs from 'fs';
@@ -91,7 +92,21 @@ configureApp(app);
 // (eagerly connecting at import would exhaust Atlas connections under load).
 let dbReady: Promise<unknown> | null = null;
 function ensureDB(): Promise<unknown> {
-  if (!dbReady) dbReady = connectDB();
+  // A previously-resolved promise can hide a since-dropped connection —
+  // Atlas closes idle connections and warm lambdas outlive them.
+  // readyState: 0=disconnected, 1=connected, 2=connecting, 3=disconnecting.
+  const state = mongoose.connection.readyState as number;
+  if (dbReady && state !== 1 && state !== 2) {
+    dbReady = null;
+  }
+  if (!dbReady) {
+    dbReady = connectDB().catch((err) => {
+      // Never cache a rejected promise — it would poison every subsequent
+      // request on this warm instance.
+      dbReady = null;
+      throw err;
+    });
+  }
   return dbReady;
 }
 
@@ -225,7 +240,15 @@ if (!process.env.VERCEL) {
 // ─── Vercel serverless entry ─────────────────────────────────────────────────
 // Ensure the (cached) DB connection is up, then hand the request to Express.
 const serverlessHandler = async (req: Request, res: Response) => {
-  await ensureDB();
+  try {
+    await ensureDB();
+  } catch (err) {
+    logger.error({ err }, 'DB unavailable for request');
+    res.statusCode = 503;
+    res.setHeader('Content-Type', 'application/json');
+    res.end(JSON.stringify({ success: false, error: 'Service temporarily unavailable, please retry', code: 'DB_UNAVAILABLE' }));
+    return;
+  }
   return (app as unknown as (req: Request, res: Response) => void)(req, res);
 };
 

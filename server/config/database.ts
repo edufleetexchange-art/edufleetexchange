@@ -12,9 +12,16 @@ const mongooseOptions = {
   maxPoolSize: 10,
   minPoolSize: 2,
   socketTimeoutMS: 45000,
-  serverSelectionTimeoutMS: 5000,
+  // Atlas free-tier clusters can take >5s to resume from idle; 5s made
+  // serverless cold starts fail spuriously.
+  serverSelectionTimeoutMS: 10000,
   family: 4, // Use IPv4, skip trying IPv6
 };
+
+// Fail fast instead of buffering operations for 10s against a dead connection
+// ("Connection operation buffering timed out"). The serverless handler checks
+// readyState per request and reconnects, so buffering only hides failures.
+mongoose.set('bufferCommands', false);
 
 export const connectDB = async () => {
   try {
@@ -44,6 +51,11 @@ export const connectDB = async () => {
     return conn;
   } catch (error) {
     logger.error({ err: error }, 'Error connecting to MongoDB');
+    // On a long-running server a missing DB is fatal — exit. In a serverless
+    // function process.exit() aborts the in-flight response (the client sees
+    // ERR_CONNECTION_CLOSED) and kills the warm instance; throw instead so
+    // the handler can return an error and the next invocation retries.
+    if (process.env.VERCEL) throw error;
     process.exit(1);
   }
 };
