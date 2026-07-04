@@ -471,7 +471,6 @@ export const createUser = async (req: AuthRequest, res: Response): Promise<void>
         return;
     }
 
-    console.log('User created successfully:', bundle.account._id);
 
     // Log the action for auditing
     if (req.account) {

@@ -180,7 +180,11 @@ Sentry.setupExpressErrorHandler(app);
 
 // Global error handler
 app.use((err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {
+  // Full detail stays server-side (logger + Sentry). Never echo raw
+  // err.message to clients in production — it can leak internals (queries,
+  // file paths, dependency errors).
   logger.error({ err }, 'Server Error');
+  const isProd = ENV.NODE_ENV === 'production';
 
   // Handle specific error types
   if (err.name === 'ValidationError') {
@@ -188,7 +192,7 @@ app.use((err: any, req: express.Request, res: express.Response, next: express.Ne
       success: false,
       error: 'Validation error',
       code: 'VALIDATION_ERROR',
-      details: err.message,
+      ...(isProd ? {} : { details: err.message }),
     });
   }
 
@@ -203,7 +207,7 @@ app.use((err: any, req: express.Request, res: express.Response, next: express.Ne
   // Default error response
   res.status(err.status || 500).json({
     success: false,
-    error: err.message || 'Internal server error',
+    error: isProd ? 'Internal server error' : (err.message || 'Internal server error'),
     code: err.code || 'SERVER_ERROR',
   });
 });
