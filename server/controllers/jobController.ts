@@ -314,7 +314,18 @@ export const updateJob = async (req: AuthRequest, res: Response) => {
       });
     }
 
-    job = await Job.findByIdAndUpdate(req.params.id, req.body, {
+    // Allowlist — createJob filters carefully; the update path must too, or an
+    // institute could overwrite server-managed fields (status, applicationsCount,
+    // instituteId) via mass-assignment.
+    const EDITABLE = [
+      'title', 'department', 'location', 'subjects', 'experience', 'salary',
+      'qualification', 'employmentType', 'description', 'requirements',
+      'responsibilities', 'benefits', 'contactEmail', 'contactPhone', 'deadline',
+    ] as const;
+    const updates: Record<string, unknown> = {};
+    for (const k of EDITABLE) if (k in req.body) updates[k] = req.body[k];
+
+    job = await Job.findByIdAndUpdate(req.params.id, updates, {
       new: true,
       runValidators: true,
     });
