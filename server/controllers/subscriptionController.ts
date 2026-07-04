@@ -4,6 +4,34 @@ import Account from '../models/Account.js';
 import Subscription from '../models/Subscription.js';
 import SubscriptionRequest from '../models/SubscriptionRequest.js';
 import { AuthRequest } from '../middleware/auth.js';
+import { logger } from '../config/logger.js';
+
+// ==========================================
+// RESPONSE HELPERS (standard envelope)
+// ==========================================
+
+/** Success: { success: true, data } */
+const ok = (res: Response, data: unknown, status = 200) =>
+  res.status(status).json({ success: true, data });
+
+/** Failure: { success: false, error, code } — `error` must be a client-safe message. */
+const fail = (res: Response, status: number, error: string, code: string) =>
+  res.status(status).json({ success: false, error, code });
+
+/** 500 failure: log the real error, return a generic message to the client. */
+const serverError = (res: Response, error: unknown, message: string, code: string) => {
+  logger.error({ err: error }, message);
+  return fail(res, 500, message, code);
+};
+
+/**
+ * 400 failure for create/update paths — mongoose validation messages are
+ * user-facing and safe to surface.
+ */
+const badRequest = (res: Response, error: unknown, fallback: string, code: string) => {
+  const msg = error instanceof Error && error.message ? error.message : fallback;
+  return fail(res, 400, msg, code);
+};
 
 // ==========================================
 //SUBSCRIPTION PLAN CRUD
@@ -12,9 +40,9 @@ import { AuthRequest } from '../middleware/auth.js';
 export const getAllPlans = async (req: Request, res: Response) => {
   try {
     const plans = await SubscriptionPlan.find().sort({ createdAt: -1 });
-    res.json(plans);
+    ok(res, plans);
   } catch (error: any) {
-    res.status(500).json({ error: error.message || 'Failed to fetch subscription plans' });
+    serverError(res, error, 'Failed to fetch subscription plans', 'FETCH_PLANS_FAILED');
   }
 };
 
@@ -22,32 +50,32 @@ export const getActivePlans = async (req: Request, res: Response) => {
   try {
     // Extract planType from query parameter (teacher, institute, vendor)
     const { planType } = req.query;
-    
+
     // Build query - filter by isActive and optionally by planType
     const query: any = { isActive: true };
-    
+
     if (planType && ['teacher', 'institute', 'vendor'].includes(planType as string)) {
       query.planType = planType;
     }
-    
+
     const plans = await SubscriptionPlan.find(query).sort({ price: 1 });
-    res.json(plans);
+    ok(res, plans);
   } catch (error: any) {
-    res.status(500).json({ error: error.message || 'Failed to fetch active plans' });
+    serverError(res, error, 'Failed to fetch active plans', 'FETCH_ACTIVE_PLANS_FAILED');
   }
 };
 
 export const getPlanById = async (req: Request, res: Response) => {
   try {
     const plan = await SubscriptionPlan.findById(req.params.id);
-    
+
     if (!plan) {
-      return res.status(404).json({ error: 'Subscription plan not found' });
+      return fail(res, 404, 'Subscription plan not found', 'PLAN_NOT_FOUND');
     }
-    
-    res.json(plan);
+
+    ok(res, plan);
   } catch (error: any) {
-    res.status(500).json({ error: error.message || 'Failed to fetch subscription plan' });
+    serverError(res, error, 'Failed to fetch subscription plan', 'FETCH_PLAN_FAILED');
   }
 };
 
@@ -55,10 +83,10 @@ export const createPlan = async (req: Request, res: Response) => {
   try {
     const plan = new SubscriptionPlan(req.body);
     await plan.save();
-    
-    res.status(201).json(plan);
+
+    ok(res, plan, 201);
   } catch (error: any) {
-    res.status(400).json({ error: error.message || 'Failed to create subscription plan' });
+    badRequest(res, error, 'Failed to create subscription plan', 'CREATE_PLAN_FAILED');
   }
 };
 
@@ -69,32 +97,32 @@ export const updatePlan = async (req: Request, res: Response) => {
       { ...req.body, updatedAt: new Date() },
       { new: true, runValidators: true }
     );
-    
+
     if (!plan) {
-      return res.status(404).json({ error: 'Subscription plan not found' });
+      return fail(res, 404, 'Subscription plan not found', 'PLAN_NOT_FOUND');
     }
-    
-    res.json(plan);
+
+    ok(res, plan);
   } catch (error: any) {
-    res.status(400).json({ error: error.message || 'Failed to update subscription plan' });
+    badRequest(res, error, 'Failed to update subscription plan', 'UPDATE_PLAN_FAILED');
   }
 };
 
 export const togglePlanStatus = async (req: Request, res: Response) => {
   try {
     const plan = await SubscriptionPlan.findById(req.params.id);
-    
+
     if (!plan) {
-      return res.status(404).json({ error: 'Subscription plan not found' });
+      return fail(res, 404, 'Subscription plan not found', 'PLAN_NOT_FOUND');
     }
-    
+
     plan.isActive = !plan.isActive;
     plan.updatedAt = new Date();
     await plan.save();
-    
-    res.json(plan);
+
+    ok(res, plan);
   } catch (error: any) {
-    res.status(500).json({ error: error.message || 'Failed to toggle plan status' });
+    serverError(res, error, 'Failed to toggle plan status', 'TOGGLE_PLAN_FAILED');
   }
 };
 
@@ -109,21 +137,21 @@ export const getUserSubscription = async (req: Request, res: Response) => {
     // other user's plan + usage by guessing IDs.
     const caller = (req as any).account as { id?: string; role?: string } | undefined;
     if (!caller) {
-      return res.status(401).json({ error: 'Not authenticated' });
+      return fail(res, 401, 'Not authenticated', 'UNAUTHENTICATED');
     }
     if (String(caller.id) !== String(req.params.userId) && caller.role !== 'admin') {
-      return res.status(403).json({ error: 'Forbidden' });
+      return fail(res, 403, 'Forbidden', 'FORBIDDEN');
     }
 
     const account = await Account.findById(req.params.userId);
 
     if (!account) {
-      return res.status(404).json({ error: 'User not found' });
+      return fail(res, 404, 'User not found', 'USER_NOT_FOUND');
     }
 
     // Skip lazy initialization for company users
     if (isCompanyUser(account.role)) {
-      return res.json({
+      return ok(res, {
         planName: 'Company Bypass',
         status: 'active',
         paymentStatus: 'completed',
@@ -173,11 +201,11 @@ export const getUserSubscription = async (req: Request, res: Response) => {
       }
     }
 
-    if (!sub) return res.json(null);
+    if (!sub) return ok(res, null);
 
     const plan = sub.planId as any;
 
-    res.json({
+    ok(res, {
       planId: sub.planId,
       status: sub.status,
       paymentStatus: sub.paymentStatus,
@@ -196,7 +224,7 @@ export const getUserSubscription = async (req: Request, res: Response) => {
       subscriptionPlanId: plan?._id || sub.planId,
     });
   } catch (error: any) {
-    res.status(500).json({ error: error.message || 'Failed to fetch user subscription' });
+    serverError(res, error, 'Failed to fetch user subscription', 'FETCH_SUBSCRIPTION_FAILED');
   }
 };
 
@@ -228,9 +256,9 @@ export const getAllUserSubscriptions = async (req: Request, res: Response) => {
       updatedAt: sub.lastBrowseReset,
     }));
 
-    res.json(subscriptions);
+    ok(res, subscriptions);
   } catch (error: any) {
-    res.status(500).json({ error: error.message || 'Failed to fetch user subscriptions' });
+    serverError(res, error, 'Failed to fetch user subscriptions', 'FETCH_SUBSCRIPTIONS_FAILED');
   }
 };
 
@@ -241,8 +269,8 @@ export const assignSubscription = async (req: Request, res: Response) => {
     const plan = await SubscriptionPlan.findById(planId);
     const accountExists = await Account.findById(userId);
 
-    if (!accountExists) return res.status(404).json({ error: 'User not found' });
-    if (!plan) return res.status(404).json({ error: 'Subscription plan not found' });
+    if (!accountExists) return fail(res, 404, 'User not found', 'USER_NOT_FOUND');
+    if (!plan) return fail(res, 404, 'Subscription plan not found', 'PLAN_NOT_FOUND');
 
     const startDate = new Date();
     const endDate = new Date(startDate);
@@ -270,9 +298,9 @@ export const assignSubscription = async (req: Request, res: Response) => {
     );
 
     await sub.populate('planId');
-    res.status(201).json(sub);
+    ok(res, sub, 201);
   } catch (error: any) {
-    res.status(400).json({ error: error.message || 'Failed to assign subscription' });
+    badRequest(res, error, 'Failed to assign subscription', 'ASSIGN_SUBSCRIPTION_FAILED');
   }
 };
 
@@ -282,7 +310,7 @@ export const extendSubscription = async (req: Request, res: Response) => {
     const userId = req.params.id;
 
     const sub = await Subscription.findOne({ accountId: userId });
-    if (!sub) return res.status(404).json({ error: 'User subscription not found' });
+    if (!sub) return fail(res, 404, 'User subscription not found', 'SUBSCRIPTION_NOT_FOUND');
 
     if (newEndDate) sub.endDate = new Date(newEndDate);
     sub.status = 'active';
@@ -292,9 +320,9 @@ export const extendSubscription = async (req: Request, res: Response) => {
     await sub.save();
     await sub.populate('planId');
 
-    res.json(sub);
+    ok(res, sub);
   } catch (error: any) {
-    res.status(400).json({ error: error.message || 'Failed to extend subscription' });
+    badRequest(res, error, 'Failed to extend subscription', 'EXTEND_SUBSCRIPTION_FAILED');
   }
 };
 
@@ -306,8 +334,8 @@ export const changePlan = async (req: Request, res: Response) => {
     const sub = await Subscription.findOne({ accountId: userId });
     const plan = await SubscriptionPlan.findById(planId);
 
-    if (!sub) return res.status(404).json({ error: 'User or subscription not found' });
-    if (!plan) return res.status(404).json({ error: 'Subscription plan not found' });
+    if (!sub) return fail(res, 404, 'User or subscription not found', 'SUBSCRIPTION_NOT_FOUND');
+    if (!plan) return fail(res, 404, 'Subscription plan not found', 'PLAN_NOT_FOUND');
 
     const startDate = new Date();
     const endDate = new Date(startDate);
@@ -326,9 +354,9 @@ export const changePlan = async (req: Request, res: Response) => {
     await sub.save();
     await sub.populate('planId');
 
-    res.json(sub);
+    ok(res, sub);
   } catch (error: any) {
-    res.status(400).json({ error: error.message || 'Failed to change plan' });
+    badRequest(res, error, 'Failed to change plan', 'CHANGE_PLAN_FAILED');
   }
 };
 
@@ -337,7 +365,7 @@ export const resetBrowseCount = async (req: Request, res: Response) => {
     const userId = req.params.id;
     const sub = await Subscription.findOne({ accountId: userId });
 
-    if (!sub) return res.status(404).json({ error: 'User subscription not found' });
+    if (!sub) return fail(res, 404, 'User subscription not found', 'SUBSCRIPTION_NOT_FOUND');
 
     sub.browseCount = 0;
     sub.lastBrowseReset = new Date();
@@ -345,9 +373,9 @@ export const resetBrowseCount = async (req: Request, res: Response) => {
     await sub.save();
     await sub.populate('planId');
 
-    res.json(sub);
+    ok(res, sub);
   } catch (error: any) {
-    res.status(500).json({ error: error.message || 'Failed to reset browse count' });
+    serverError(res, error, 'Failed to reset browse count', 'RESET_BROWSE_FAILED');
   }
 };
 
@@ -357,7 +385,7 @@ export const suspendSubscription = async (req: Request, res: Response) => {
     const userId = req.params.id;
 
     const sub = await Subscription.findOne({ accountId: userId });
-    if (!sub) return res.status(404).json({ error: 'User subscription not found' });
+    if (!sub) return fail(res, 404, 'User subscription not found', 'SUBSCRIPTION_NOT_FOUND');
 
     sub.status = 'suspended';
     if (reason) sub.notes = reason;
@@ -365,9 +393,9 @@ export const suspendSubscription = async (req: Request, res: Response) => {
     await sub.save();
     await sub.populate('planId');
 
-    res.json(sub);
+    ok(res, sub);
   } catch (error: any) {
-    res.status(500).json({ error: error.message || 'Failed to suspend subscription' });
+    serverError(res, error, 'Failed to suspend subscription', 'SUSPEND_SUBSCRIPTION_FAILED');
   }
 };
 
@@ -376,24 +404,27 @@ export const reactivateSubscription = async (req: Request, res: Response) => {
     const userId = req.params.id;
     const sub = await Subscription.findOne({ accountId: userId });
 
-    if (!sub) return res.status(404).json({ error: 'User subscription not found' });
+    if (!sub) return fail(res, 404, 'User subscription not found', 'SUBSCRIPTION_NOT_FOUND');
 
     const now = new Date();
     const endDate = new Date(sub.endDate);
 
     if (now > endDate) {
-      return res.status(400).json({
-        error: 'Cannot reactivate expired subscription. Please extend the subscription first.',
-      });
+      return fail(
+        res,
+        400,
+        'Cannot reactivate expired subscription. Please extend the subscription first.',
+        'SUBSCRIPTION_EXPIRED'
+      );
     }
 
     sub.status = 'active';
     await sub.save();
     await sub.populate('planId');
 
-    res.json(sub);
+    ok(res, sub);
   } catch (error: any) {
-    res.status(500).json({ error: error.message || 'Failed to reactivate subscription' });
+    serverError(res, error, 'Failed to reactivate subscription', 'REACTIVATE_SUBSCRIPTION_FAILED');
   }
 };
 
@@ -402,27 +433,27 @@ export const cancelSubscription = async (req: Request, res: Response) => {
     const userId = req.params.id;
     const sub = await Subscription.findOne({ accountId: userId });
 
-    if (!sub) return res.status(404).json({ error: 'User subscription not found' });
+    if (!sub) return fail(res, 404, 'User subscription not found', 'SUBSCRIPTION_NOT_FOUND');
 
     await Subscription.findByIdAndDelete(sub._id);
 
-    res.json({ message: 'Subscription cancelled successfully' });
+    ok(res, { message: 'Subscription cancelled successfully' });
   } catch (error: any) {
-    res.status(500).json({ error: error.message || 'Failed to cancel subscription' });
+    serverError(res, error, 'Failed to cancel subscription', 'CANCEL_SUBSCRIPTION_FAILED');
   }
 };
 
 export const continueOwnSubscription = async (req: AuthRequest, res: Response) => {
   try {
     const userId = req.account?.id;
-    if (!userId) return res.status(401).json({ error: 'User ID not found' });
+    if (!userId) return fail(res, 401, 'User ID not found', 'UNAUTHENTICATED');
 
     // Self-service "continue" must not accept a client-supplied endDate — that
     // would let a user extend their subscription forever for free. Derive the
     // new endDate from the plan's duration server-side. A real payment flow
     // (or admin) is the only way to extend beyond that.
     const sub = await Subscription.findOne({ accountId: userId }).populate('planId');
-    if (!sub) return res.status(404).json({ error: 'User subscription not found' });
+    if (!sub) return fail(res, 404, 'User subscription not found', 'SUBSCRIPTION_NOT_FOUND');
 
     const plan: any = sub.planId;
     const days = (plan && typeof plan === 'object' && typeof plan.duration === 'number')
@@ -436,9 +467,9 @@ export const continueOwnSubscription = async (req: AuthRequest, res: Response) =
 
     await sub.save();
 
-    res.json(sub);
+    ok(res, sub);
   } catch (error: any) {
-    res.status(400).json({ error: error.message || 'Failed to continue subscription' });
+    badRequest(res, error, 'Failed to continue subscription', 'CONTINUE_SUBSCRIPTION_FAILED');
   }
 };
 
@@ -451,7 +482,7 @@ export const getUsageStats = async (req: Request, res: Response) => {
     const sub = await Subscription.findOne({ accountId: req.params.userId }).populate('planId');
 
     if (!sub) {
-      return res.json({
+      return ok(res, {
         planName: 'None',
         status: 'none',
         paymentStatus: 'none',
@@ -476,7 +507,7 @@ export const getUsageStats = async (req: Request, res: Response) => {
     const browseCountLimit = sub.browseCountLimit || plan?.features?.maxBrowsesPerMonth || 0;
     const jobPostsLimit = sub.jobPostsLimit || plan?.features?.maxJobPosts || 0;
 
-    res.json({
+    ok(res, {
       planName: plan?.displayName || plan?.name || 'Unknown',
       status: sub.status,
       paymentStatus: sub.paymentStatus,
@@ -506,7 +537,7 @@ export const getUsageStats = async (req: Request, res: Response) => {
       isExpiringSoon: daysRemaining <= 7 && daysRemaining > 0,
     });
   } catch (error: any) {
-    res.status(500).json({ error: error.message || 'Failed to fetch usage stats' });
+    serverError(res, error, 'Failed to fetch usage stats', 'FETCH_USAGE_STATS_FAILED');
   }
 };
 
@@ -536,7 +567,7 @@ export const getGlobalStats = async (req: Request, res: Response) => {
       return sum + (plan?.price || 0);
     }, 0);
 
-    res.json({
+    ok(res, {
       subscriptions: {
         total: totalSubscriptions,
         active: activeSubscriptions,
@@ -548,7 +579,7 @@ export const getGlobalStats = async (req: Request, res: Response) => {
       revenue: { total: totalRevenue },
     });
   } catch (error: any) {
-    res.status(500).json({ error: error.message || 'Failed to fetch global stats' });
+    serverError(res, error, 'Failed to fetch global stats', 'FETCH_GLOBAL_STATS_FAILED');
   }
 };
 
@@ -577,9 +608,9 @@ export const getPlanStats = async (req: Request, res: Response) => {
       };
     });
 
-    res.json(planStats);
+    ok(res, planStats);
   } catch (error: any) {
-    res.status(500).json({ error: error.message || 'Failed to fetch plan stats' });
+    serverError(res, error, 'Failed to fetch plan stats', 'FETCH_PLAN_STATS_FAILED');
   }
 };
 
@@ -640,7 +671,7 @@ export const getFilteredSubscriptions = async (req: Request, res: Response) => {
       updatedAt: sub.lastBrowseReset,
     }));
 
-    res.json({
+    ok(res, {
       items: subscriptions,
       total,
       page: Number(page),
@@ -648,7 +679,7 @@ export const getFilteredSubscriptions = async (req: Request, res: Response) => {
       totalPages: Math.ceil(total / Number(pageSize)),
     });
   } catch (error: any) {
-    res.status(500).json({ error: error.message || 'Failed to fetch filtered subscriptions' });
+    serverError(res, error, 'Failed to fetch filtered subscriptions', 'FETCH_FILTERED_SUBSCRIPTIONS_FAILED');
   }
 };
 
@@ -660,7 +691,7 @@ export const createSubscriptionRequest = async (req: AuthRequest, res: Response)
   try {
     const userId = req.account?.id;
     if (!userId) {
-      return res.status(401).json({ error: 'User ID not found' });
+      return fail(res, 401, 'User ID not found', 'UNAUTHENTICATED');
     }
 
     const { requestedPlanId, requestType, userNotes } = req.body;
@@ -669,11 +700,11 @@ export const createSubscriptionRequest = async (req: AuthRequest, res: Response)
     const requestedPlan = await SubscriptionPlan.findById(requestedPlanId);
 
     if (!account) {
-      return res.status(404).json({ error: 'User not found' });
+      return fail(res, 404, 'User not found', 'USER_NOT_FOUND');
     }
 
     if (!requestedPlan) {
-      return res.status(404).json({ error: 'Requested subscription plan not found' });
+      return fail(res, 404, 'Requested subscription plan not found', 'PLAN_NOT_FOUND');
     }
 
     // Check if there's already a pending request
@@ -683,13 +714,13 @@ export const createSubscriptionRequest = async (req: AuthRequest, res: Response)
     });
 
     if (existingPending) {
-      return res.status(400).json({ error: 'You already have a pending subscription request' });
+      return fail(res, 400, 'You already have a pending subscription request', 'REQUEST_ALREADY_PENDING');
     }
 
     // Handle both with and without existing subscription
     const existingSub = await Subscription.findOne({ accountId: userId });
     const currentPlanId = existingSub?.planId || null;
-    
+
     const request = new SubscriptionRequest({
       userId,
       currentPlanId: currentPlanId || requestedPlanId, // Use requested as current if no existing
@@ -701,9 +732,9 @@ export const createSubscriptionRequest = async (req: AuthRequest, res: Response)
 
     await request.save();
 
-    res.status(201).json(request);
+    ok(res, request, 201);
   } catch (error: any) {
-    res.status(400).json({ error: error.message || 'Failed to create subscription request' });
+    badRequest(res, error, 'Failed to create subscription request', 'CREATE_REQUEST_FAILED');
   }
 };
 
@@ -720,9 +751,9 @@ export const getAllSubscriptionRequests = async (req: Request, res: Response) =>
       .populate('requestedPlanId', 'displayName name')
       .sort({ createdAt: -1 });
 
-    res.json(requests);
+    ok(res, requests);
   } catch (error: any) {
-    res.status(500).json({ error: error.message || 'Failed to fetch subscription requests' });
+    serverError(res, error, 'Failed to fetch subscription requests', 'FETCH_REQUESTS_FAILED');
   }
 };
 
@@ -733,11 +764,11 @@ export const updateSubscriptionRequest = async (req: Request, res: Response) => 
 
     const request = await SubscriptionRequest.findById(id);
     if (!request) {
-      return res.status(404).json({ error: 'Subscription request not found' });
+      return fail(res, 404, 'Subscription request not found', 'REQUEST_NOT_FOUND');
     }
 
     if (request.status !== 'pending') {
-      return res.status(400).json({ error: 'Request has already been processed' });
+      return fail(res, 400, 'Request has already been processed', 'REQUEST_ALREADY_PROCESSED');
     }
 
     request.status = status;
@@ -775,9 +806,9 @@ export const updateSubscriptionRequest = async (req: Request, res: Response) => 
     }
 
     await request.save();
-    res.json(request);
+    ok(res, request);
   } catch (error: any) {
-    res.status(400).json({ error: error.message || 'Failed to update subscription request' });
+    badRequest(res, error, 'Failed to update subscription request', 'UPDATE_REQUEST_FAILED');
   }
 };
 
@@ -785,7 +816,7 @@ export const getUserSubscriptionRequests = async (req: AuthRequest, res: Respons
   try {
     const userId = req.account?.id;
     if (!userId) {
-      return res.status(401).json({ error: 'User ID not found' });
+      return fail(res, 401, 'User ID not found', 'UNAUTHENTICATED');
     }
 
     const requests = await SubscriptionRequest.find({ userId })
@@ -793,9 +824,9 @@ export const getUserSubscriptionRequests = async (req: AuthRequest, res: Respons
       .populate('requestedPlanId', 'displayName name')
       .sort({ createdAt: -1 });
 
-    res.json(requests);
+    ok(res, requests);
   } catch (error: any) {
-    res.status(500).json({ error: error.message || 'Failed to fetch user requests' });
+    serverError(res, error, 'Failed to fetch user requests', 'FETCH_USER_REQUESTS_FAILED');
   }
 };
 
@@ -828,13 +859,13 @@ const isCompanyUser = (role: string) => {
 export const checkBrowseLimit = async (req: AuthRequest, res: Response) => {
   try {
     const userId = req.account?.id;
-    if (!userId) return res.status(401).json({ error: 'User ID not found' });
+    if (!userId) return fail(res, 401, 'User ID not found', 'UNAUTHENTICATED');
 
     const account = await Account.findById(userId);
-    if (!account) return res.status(404).json({ error: 'User not found' });
+    if (!account) return fail(res, 404, 'User not found', 'USER_NOT_FOUND');
 
     if (isCompanyUser(account.role)) {
-      return res.json({ allowed: true, remaining: 999999, limitReached: false, subscription: null, message: 'Company user bypass' });
+      return ok(res, { allowed: true, remaining: 999999, limitReached: false, subscription: null, message: 'Company user bypass' });
     }
 
     const sub = await Subscription.findOne({ accountId: userId }).populate('planId');
@@ -842,11 +873,11 @@ export const checkBrowseLimit = async (req: AuthRequest, res: Response) => {
     await checkAndResetBillingPeriod(sub);
 
     if (!sub || !sub.planId) {
-      return res.json({ allowed: true, remaining: 10, limitReached: false, subscription: null, message: 'Using free plan limits' });
+      return ok(res, { allowed: true, remaining: 10, limitReached: false, subscription: null, message: 'Using free plan limits' });
     }
 
     if (sub.status !== 'active') {
-      return res.json({ allowed: false, remaining: 0, limitReached: true, subscription: sub, message: `Subscription is ${sub.status}` });
+      return ok(res, { allowed: false, remaining: 0, limitReached: true, subscription: sub, message: `Subscription is ${sub.status}` });
     }
 
     const now = new Date();
@@ -854,7 +885,7 @@ export const checkBrowseLimit = async (req: AuthRequest, res: Response) => {
     if (now > endDate) {
       sub.status = 'expired';
       await sub.save();
-      return res.json({ allowed: false, remaining: 0, limitReached: true, subscription: sub, message: 'Subscription has expired' });
+      return ok(res, { allowed: false, remaining: 0, limitReached: true, subscription: sub, message: 'Subscription has expired' });
     }
 
     const plan = sub.planId as any;
@@ -863,7 +894,7 @@ export const checkBrowseLimit = async (req: AuthRequest, res: Response) => {
     const remaining = Math.max(0, maxBrowses - browseCountUsed);
     const limitReached = remaining <= 0;
 
-    res.json({
+    ok(res, {
       allowed: !limitReached,
       remaining,
       limitReached,
@@ -871,7 +902,7 @@ export const checkBrowseLimit = async (req: AuthRequest, res: Response) => {
       message: limitReached ? `Browse limit reached (${maxBrowses})` : undefined,
     });
   } catch (error: any) {
-    res.status(500).json({ error: error.message || 'Failed to check browse limit' });
+    serverError(res, error, 'Failed to check browse limit', 'CHECK_BROWSE_LIMIT_FAILED');
   }
 };
 
@@ -879,23 +910,23 @@ export const checkBrowseLimit = async (req: AuthRequest, res: Response) => {
 export const incrementBrowseCount = async (req: AuthRequest, res: Response) => {
   try {
     const userId = req.account?.id;
-    if (!userId) return res.status(401).json({ error: 'User ID not found' });
+    if (!userId) return fail(res, 401, 'User ID not found', 'UNAUTHENTICATED');
 
     const sub = await Subscription.findOne({ accountId: userId });
-    if (!sub) return res.status(404).json({ error: 'User not found' });
+    if (!sub) return fail(res, 404, 'User not found', 'SUBSCRIPTION_NOT_FOUND');
 
     await checkAndResetBillingPeriod(sub);
 
     if (sub.status !== 'active') {
-      return res.json({ success: false, message: 'No active subscription' });
+      return ok(res, { success: false, message: 'No active subscription' });
     }
 
     sub.browseCount = (sub.browseCount || 0) + 1;
     await sub.save();
 
-    res.json({ success: true, browseCount: sub.browseCount, message: 'Browse count incremented' });
+    ok(res, { success: true, browseCount: sub.browseCount, message: 'Browse count incremented' });
   } catch (error: any) {
-    res.status(500).json({ error: error.message || 'Failed to increment browse count' });
+    serverError(res, error, 'Failed to increment browse count', 'INCREMENT_BROWSE_FAILED');
   }
 };
 
@@ -903,23 +934,23 @@ export const incrementBrowseCount = async (req: AuthRequest, res: Response) => {
 export const checkListingLimit = async (req: AuthRequest, res: Response) => {
   try {
     const userId = req.account?.id;
-    if (!userId) return res.status(401).json({ error: 'User ID not found' });
+    if (!userId) return fail(res, 401, 'User ID not found', 'UNAUTHENTICATED');
 
     const account = await Account.findById(userId);
-    if (!account) return res.status(404).json({ error: 'User not found' });
+    if (!account) return fail(res, 404, 'User not found', 'USER_NOT_FOUND');
 
     if (isCompanyUser(account.role)) {
-      return res.json({ allowed: true, remaining: 999999, limitReached: false, subscription: null, message: 'Company user bypass' });
+      return ok(res, { allowed: true, remaining: 999999, limitReached: false, subscription: null, message: 'Company user bypass' });
     }
 
     const sub = await Subscription.findOne({ accountId: userId }).populate('planId');
 
     if (!sub || !sub.planId) {
-      return res.json({ allowed: false, remaining: 2, limitReached: true, subscription: null, message: 'No active subscription. Listing creation not allowed.' });
+      return ok(res, { allowed: false, remaining: 2, limitReached: true, subscription: null, message: 'No active subscription. Listing creation not allowed.' });
     }
 
     if (sub.status !== 'active') {
-      return res.json({ allowed: false, remaining: 0, limitReached: true, subscription: sub, message: `Subscription is ${sub.status}. Cannot create listings.` });
+      return ok(res, { allowed: false, remaining: 0, limitReached: true, subscription: sub, message: `Subscription is ${sub.status}. Cannot create listings.` });
     }
 
     const now = new Date();
@@ -927,7 +958,7 @@ export const checkListingLimit = async (req: AuthRequest, res: Response) => {
     if (now > endDate) {
       sub.status = 'expired';
       await sub.save();
-      return res.json({ allowed: false, remaining: 0, limitReached: true, subscription: sub, message: 'Subscription has expired. Cannot create listings.' });
+      return ok(res, { allowed: false, remaining: 0, limitReached: true, subscription: sub, message: 'Subscription has expired. Cannot create listings.' });
     }
 
     const plan = sub.planId as any;
@@ -936,7 +967,7 @@ export const checkListingLimit = async (req: AuthRequest, res: Response) => {
     const remaining = Math.max(0, maxListings - listingsUsed);
     const limitReached = remaining <= 0;
 
-    res.json({
+    ok(res, {
       allowed: !limitReached,
       remaining,
       limitReached,
@@ -944,7 +975,7 @@ export const checkListingLimit = async (req: AuthRequest, res: Response) => {
       message: limitReached ? `Listing limit reached (${maxListings}). Please upgrade.` : undefined,
     });
   } catch (error: any) {
-    res.status(500).json({ error: error.message || 'Failed to check listing limit' });
+    serverError(res, error, 'Failed to check listing limit', 'CHECK_LISTING_LIMIT_FAILED');
   }
 };
 
@@ -952,27 +983,27 @@ export const checkListingLimit = async (req: AuthRequest, res: Response) => {
 export const incrementListingCount = async (req: AuthRequest, res: Response) => {
   try {
     const userId = req.account?.id;
-    if (!userId) return res.status(401).json({ error: 'User ID not found' });
+    if (!userId) return fail(res, 401, 'User ID not found', 'UNAUTHENTICATED');
 
     const account = await Account.findById(userId);
-    if (!account) return res.status(404).json({ error: 'User not found' });
+    if (!account) return fail(res, 404, 'User not found', 'USER_NOT_FOUND');
 
     if (isCompanyUser(account.role)) {
-      return res.json({ success: true, listingsUsed: 0, message: 'Company user bypass - count not tracked' });
+      return ok(res, { success: true, listingsUsed: 0, message: 'Company user bypass - count not tracked' });
     }
 
     const sub = await Subscription.findOne({ accountId: userId });
 
     if (!sub || sub.status !== 'active') {
-      return res.json({ success: false, message: 'No active subscription' });
+      return ok(res, { success: false, message: 'No active subscription' });
     }
 
     sub.listingsUsed = (sub.listingsUsed || 0) + 1;
     await sub.save();
 
-    res.json({ success: true, listingsUsed: sub.listingsUsed, message: 'Listing count incremented' });
+    ok(res, { success: true, listingsUsed: sub.listingsUsed, message: 'Listing count incremented' });
   } catch (error: any) {
-    res.status(500).json({ error: error.message || 'Failed to increment listing count' });
+    serverError(res, error, 'Failed to increment listing count', 'INCREMENT_LISTING_FAILED');
   }
 };
 
@@ -980,20 +1011,20 @@ export const incrementListingCount = async (req: AuthRequest, res: Response) => 
 export const decrementListingCount = async (req: AuthRequest, res: Response) => {
   try {
     const userId = req.account?.id;
-    if (!userId) return res.status(401).json({ error: 'User ID not found' });
+    if (!userId) return fail(res, 401, 'User ID not found', 'UNAUTHENTICATED');
 
     const sub = await Subscription.findOne({ accountId: userId });
 
-    if (!sub) return res.json({ success: false, message: 'No subscription found' });
+    if (!sub) return ok(res, { success: false, message: 'No subscription found' });
 
     if ((sub.listingsUsed || 0) > 0) {
       sub.listingsUsed = (sub.listingsUsed || 0) - 1;
       await sub.save();
     }
 
-    res.json({ success: true, listingsUsed: sub.listingsUsed, message: 'Listing count decremented' });
+    ok(res, { success: true, listingsUsed: sub.listingsUsed, message: 'Listing count decremented' });
   } catch (error: any) {
-    res.status(500).json({ error: error.message || 'Failed to decrement listing count' });
+    serverError(res, error, 'Failed to decrement listing count', 'DECREMENT_LISTING_FAILED');
   }
 };
 
@@ -1001,23 +1032,23 @@ export const decrementListingCount = async (req: AuthRequest, res: Response) => 
 export const checkJobPostLimit = async (req: AuthRequest, res: Response) => {
   try {
     const userId = req.account?.id;
-    if (!userId) return res.status(401).json({ error: 'User ID not found' });
+    if (!userId) return fail(res, 401, 'User ID not found', 'UNAUTHENTICATED');
 
     const account = await Account.findById(userId);
-    if (!account) return res.status(404).json({ error: 'User not found' });
+    if (!account) return fail(res, 404, 'User not found', 'USER_NOT_FOUND');
 
     if (isCompanyUser(account.role)) {
-      return res.json({ allowed: true, remaining: 999999, limitReached: false, subscription: null, message: 'Company user bypass' });
+      return ok(res, { allowed: true, remaining: 999999, limitReached: false, subscription: null, message: 'Company user bypass' });
     }
 
     const sub = await Subscription.findOne({ accountId: userId }).populate('planId');
 
     if (!sub || !sub.planId) {
-      return res.json({ allowed: false, remaining: 0, limitReached: true, subscription: null, message: 'No active subscription. Job posting not allowed.' });
+      return ok(res, { allowed: false, remaining: 0, limitReached: true, subscription: null, message: 'No active subscription. Job posting not allowed.' });
     }
 
     if (sub.status !== 'active') {
-      return res.json({ allowed: false, remaining: 0, limitReached: true, subscription: sub, message: `Subscription is ${sub.status}. Cannot post jobs.` });
+      return ok(res, { allowed: false, remaining: 0, limitReached: true, subscription: sub, message: `Subscription is ${sub.status}. Cannot post jobs.` });
     }
 
     const now = new Date();
@@ -1025,7 +1056,7 @@ export const checkJobPostLimit = async (req: AuthRequest, res: Response) => {
     if (now > endDate) {
       sub.status = 'expired';
       await sub.save();
-      return res.json({ allowed: false, remaining: 0, limitReached: true, subscription: sub, message: 'Subscription has expired. Cannot post jobs.' });
+      return ok(res, { allowed: false, remaining: 0, limitReached: true, subscription: sub, message: 'Subscription has expired. Cannot post jobs.' });
     }
 
     const plan = sub.planId as any;
@@ -1034,7 +1065,7 @@ export const checkJobPostLimit = async (req: AuthRequest, res: Response) => {
     const remaining = Math.max(0, maxJobPosts - jobPostsUsed);
     const limitReached = remaining <= 0;
 
-    res.json({
+    ok(res, {
       allowed: !limitReached,
       remaining,
       limitReached,
@@ -1042,7 +1073,7 @@ export const checkJobPostLimit = async (req: AuthRequest, res: Response) => {
       message: limitReached ? `Job post limit reached (${maxJobPosts}). Please upgrade.` : undefined,
     });
   } catch (error: any) {
-    res.status(500).json({ error: error.message || 'Failed to check job post limit' });
+    serverError(res, error, 'Failed to check job post limit', 'CHECK_JOB_POST_LIMIT_FAILED');
   }
 };
 
@@ -1050,27 +1081,48 @@ export const checkJobPostLimit = async (req: AuthRequest, res: Response) => {
 export const incrementJobPostCount = async (req: AuthRequest, res: Response) => {
   try {
     const userId = req.account?.id;
-    if (!userId) return res.status(401).json({ error: 'User ID not found' });
+    if (!userId) return fail(res, 401, 'User ID not found', 'UNAUTHENTICATED');
 
     const account = await Account.findById(userId);
-    if (!account) return res.status(404).json({ error: 'User not found' });
+    if (!account) return fail(res, 404, 'User not found', 'USER_NOT_FOUND');
 
     if (isCompanyUser(account.role)) {
-      return res.json({ success: true, jobPostsUsed: 0, message: 'Company user bypass - count not tracked' });
+      return ok(res, { success: true, jobPostsUsed: 0, message: 'Company user bypass - count not tracked' });
     }
 
     const sub = await Subscription.findOne({ accountId: userId });
 
     if (!sub || sub.status !== 'active') {
-      return res.json({ success: false, message: 'No active subscription' });
+      return ok(res, { success: false, message: 'No active subscription' });
     }
 
     sub.jobPostsUsed = (sub.jobPostsUsed || 0) + 1;
     await sub.save();
 
-    res.json({ success: true, jobPostsUsed: sub.jobPostsUsed, message: 'Job post count incremented' });
+    ok(res, { success: true, jobPostsUsed: sub.jobPostsUsed, message: 'Job post count incremented' });
   } catch (error: any) {
-    res.status(500).json({ error: error.message || 'Failed to increment job post count' });
+    serverError(res, error, 'Failed to increment job post count', 'INCREMENT_JOB_POST_FAILED');
+  }
+};
+
+// Decrement job post count (mirrors decrementListingCount)
+export const decrementJobPostCount = async (req: AuthRequest, res: Response) => {
+  try {
+    const userId = req.account?.id;
+    if (!userId) return fail(res, 401, 'User ID not found', 'UNAUTHENTICATED');
+
+    const sub = await Subscription.findOne({ accountId: userId });
+
+    if (!sub) return ok(res, { success: false, message: 'No subscription found' });
+
+    if ((sub.jobPostsUsed || 0) > 0) {
+      sub.jobPostsUsed = (sub.jobPostsUsed || 0) - 1;
+      await sub.save();
+    }
+
+    ok(res, { success: true, jobPostsUsed: sub.jobPostsUsed, message: 'Job post count decremented' });
+  } catch (error: any) {
+    serverError(res, error, 'Failed to decrement job post count', 'DECREMENT_JOB_POST_FAILED');
   }
 };
 
@@ -1080,7 +1132,7 @@ export const checkListingVisibility = async (req: Request, res: Response) => {
     const { listingCreatedAt, userId } = req.body;
 
     if (!listingCreatedAt || !userId) {
-      return res.status(400).json({ error: 'Missing required fields' });
+      return fail(res, 400, 'Missing required fields', 'MISSING_FIELDS');
     }
 
     const sub = await Subscription.findOne({ accountId: userId }).populate('planId');
@@ -1091,7 +1143,7 @@ export const checkListingVisibility = async (req: Request, res: Response) => {
       const createdTime = new Date(listingCreatedAt).getTime();
       const availableTime = createdTime + (delayHours * 60 * 60 * 1000);
       const now = Date.now();
-      return res.json({
+      return ok(res, {
         visible: now >= availableTime,
         delayHours,
         availableAt: new Date(availableTime).toISOString(),
@@ -1100,7 +1152,7 @@ export const checkListingVisibility = async (req: Request, res: Response) => {
     }
 
     if (sub.status !== 'active') {
-      return res.json({
+      return ok(res, {
         visible: false,
         delayHours: 168,
         availableAt: new Date(Date.now() + 168 * 60 * 60 * 1000).toISOString(),
@@ -1115,14 +1167,14 @@ export const checkListingVisibility = async (req: Request, res: Response) => {
     const availableTime = createdTime + (delayHours * 60 * 60 * 1000);
     const now = Date.now();
 
-    res.json({
+    ok(res, {
       visible: now >= availableTime,
       delayHours,
       availableAt: new Date(availableTime).toISOString(),
       subscription: sub,
     });
   } catch (error: any) {
-    res.status(500).json({ error: error.message || 'Failed to check listing visibility' });
+    serverError(res, error, 'Failed to check listing visibility', 'CHECK_VISIBILITY_FAILED');
   }
 };
 
@@ -1130,19 +1182,19 @@ export const checkListingVisibility = async (req: Request, res: Response) => {
 export const checkNotificationPermission = async (req: AuthRequest, res: Response) => {
   try {
     const userId = req.account?.id;
-    if (!userId) return res.status(401).json({ error: 'User ID not found' });
+    if (!userId) return fail(res, 401, 'User ID not found', 'UNAUTHENTICATED');
 
     const sub = await Subscription.findOne({ accountId: userId }).populate('planId');
 
     if (!sub || sub.status !== 'active') {
-      return res.json({ allowed: false, subscription: sub || null });
+      return ok(res, { allowed: false, subscription: sub || null });
     }
 
     const plan = sub.planId as any;
     const notificationsEnabled = plan?.features?.instantVehicleAlerts || plan?.features?.instantJobAlerts || false;
 
-    res.json({ allowed: notificationsEnabled, subscription: sub });
+    ok(res, { allowed: notificationsEnabled, subscription: sub });
   } catch (error: any) {
-    res.status(500).json({ error: error.message || 'Failed to check notification permission' });
+    serverError(res, error, 'Failed to check notification permission', 'CHECK_NOTIFICATION_FAILED');
   }
 };

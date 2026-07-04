@@ -161,7 +161,6 @@ export const deleteNotification = async (req: Request, res: Response) => {
     const userId = authReq.account?.id;
     const notificationId = req.params.id;
 
-    console.log(`[Delete Notification] Request for ID: ${notificationId} by User: ${userId}`);
 
     const notification = await Notification.findOne({
       _id: notificationId,
@@ -178,7 +177,6 @@ export const deleteNotification = async (req: Request, res: Response) => {
     }
 
     await Notification.findOneAndDelete({ _id: notificationId, userId });
-    console.log(`[Delete Notification] Successfully deleted notification: ${notificationId}`);
 
     res.status(200).json({
       success: true,
