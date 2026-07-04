@@ -349,8 +349,6 @@ export const createUser = async (req: AuthRequest, res: Response): Promise<void>
       planId,
     } = req.body;
 
-    console.log('Creating user with data:', { name, email, role, planId });
-
     // Validate required fields
     if (!name || !email || !password || !role) {
       res.status(400).json({

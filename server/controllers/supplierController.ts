@@ -11,8 +11,11 @@ export const createSupplier = async (req: AuthRequest, res: Response) => {
   try {
     const userId = req.account?.id;
 
+    // Strip server-managed trust signals — updateSupplier allowlists these,
+    // but the create path let a vendor self-set isVerified.
+    const { isVerified: _iv, rating: _r, reviews: _rv, createdBy: _cb, status: _st, ...body } = req.body ?? {};
     const supplierData = {
-      ...req.body,
+      ...body,
       createdBy: userId,
       status: 'pending', // Requires admin approval
     };
