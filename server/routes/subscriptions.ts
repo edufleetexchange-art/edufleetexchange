@@ -27,6 +27,7 @@ import {
   decrementListingCount,
   checkJobPostLimit,
   incrementJobPostCount,
+  decrementJobPostCount,
   checkListingVisibility,
   checkNotificationPermission,
   createSubscriptionRequest,
@@ -78,6 +79,7 @@ router.post('/increment/listing-count', authenticate, incrementListingCount);
 router.post('/decrement/listing-count', authenticate, decrementListingCount);
 router.get('/check/job-post-limit', authenticate, checkJobPostLimit);
 router.post('/increment/job-post-count', authenticate, incrementJobPostCount);
+router.post('/decrement/job-post-count', authenticate, decrementJobPostCount);
 router.post('/check/listing-visibility', checkListingVisibility); // No auth - can be checked by anyone
 router.get('/check/notification-permission', authenticate, checkNotificationPermission);
 
