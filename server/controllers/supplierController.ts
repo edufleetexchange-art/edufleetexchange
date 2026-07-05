@@ -27,6 +27,25 @@ export const createSupplier = async (req: AuthRequest, res: Response) => {
       data: supplier,
       message: 'Supplier created successfully. Pending admin approval.',
     });
+
+    // Notify all active admins that a new listing awaits approval. Mirrors the
+    // approve-path notification below — failure here must never break the create.
+    try {
+      const admins = await Account.find({ role: 'admin', isActive: true }).select('_id').lean();
+      for (const admin of admins) {
+        await Notification.create({
+          userId: admin._id,
+          type: 'system',
+          title: 'New supplier listing pending approval',
+          message: `New supplier listing pending approval: ${supplier.name}`,
+          priority: 'high',
+          metadata: { supplierId: String(supplier._id) },
+        });
+      }
+    } catch (notifyError) {
+      // eslint-disable-next-line no-console
+      console.error('[supplierController] Admin notification failed for new supplier:', notifyError);
+    }
   } catch (error: any) {
     res.status(400).json({
       success: false,
@@ -44,12 +63,15 @@ export const getAllSuppliers = async (req: AuthRequest, res: Response) => {
       city,
       state,
       isVerified,
-      search,
       sort = '-createdAt',
       page = 1,
-      limit = 20,
       status, // Extract status from query
     } = req.query;
+
+    // Accept both naming conventions the UI has used: `search`/`searchTerm`
+    // and `limit`/`pageSize`.
+    const search = req.query.search ?? req.query.searchTerm;
+    const limit = req.query.limit ?? req.query.pageSize ?? 20;
 
     const query: any = {};
 
@@ -424,7 +446,7 @@ export const approveSupplierStatus = async (req: AuthRequest, res: Response) => 
       message: status === 'approved'
         ? `Your supplier profile for "${supplier.name}" has been approved. You can now list your products.`
         : `Your supplier profile for "${supplier.name}" was not approved. Please check with admin for details.`,
-      link: '/dashboard',
+      link: '/dashboard?tab=listings',
     });
 
     res.status(200).json({

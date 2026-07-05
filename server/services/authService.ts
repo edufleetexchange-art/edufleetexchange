@@ -7,6 +7,7 @@ import ConsultantProfile from '../models/ConsultantProfile.js';
 import StaffProfile from '../models/StaffProfile.js';
 import Subscription from '../models/Subscription.js';
 import SubscriptionPlan from '../models/SubscriptionPlan.js';
+import Supplier from '../models/Supplier.js';
 import { fanOutTeacherSafe } from './alertService.js';
 
 type Address = { street: string; city: string; state: string; pincode: string; country?: string };
@@ -225,12 +226,69 @@ export interface VendorSignupInput {
   contactPerson?: string;
   website?: string;
   address?: Partial<Address>;
+  // Optional Supplier-directory fields. When present (along with phone and a
+  // full address), signup auto-creates a pending Supplier listing for the
+  // vendor. When absent we skip the auto-create gracefully — never fail signup.
+  category?: string;
+  description?: string;
+  services?: string[];
+}
+
+/**
+ * Founder-approved: vendor signup auto-creates their Supplier directory
+ * listing (status 'pending', admin approval required). Failure-safe like the
+ * teacher alert fan-out — this must NEVER break signup. If required Supplier
+ * fields are missing from the payload, we log and skip instead of throwing.
+ */
+async function autoCreateSupplierSafe(accountId: string, input: VendorSignupInput): Promise<void> {
+  try {
+    const addr = input.address ?? {};
+    const missing: string[] = [];
+    if (!input.phone) missing.push('phone');
+    if (!input.description) missing.push('description');
+    if (!input.services?.length) missing.push('services');
+    if (!addr.street) missing.push('address.street');
+    if (!addr.city) missing.push('address.city');
+    if (!addr.state) missing.push('address.state');
+    if (!addr.pincode) missing.push('address.pincode');
+
+    if (missing.length) {
+      // eslint-disable-next-line no-console
+      console.log(
+        `[authService] Skipping supplier auto-create for vendor ${accountId}: missing ${missing.join(', ')}`
+      );
+      return;
+    }
+
+    await Supplier.create({
+      name: input.businessName,
+      category: input.category ?? 'other',
+      description: input.description,
+      services: input.services,
+      contactPerson: input.contactPerson ?? input.name,
+      email: input.email,
+      phone: input.phone,
+      website: input.website,
+      address: {
+        street: addr.street,
+        city: addr.city,
+        state: addr.state,
+        pincode: addr.pincode,
+        country: addr.country ?? 'India',
+      },
+      createdBy: accountId,
+      status: 'pending', // Requires admin approval
+    });
+  } catch (err) {
+    // eslint-disable-next-line no-console
+    console.error(`[authService] Supplier auto-create failed for vendor ${accountId}:`, err);
+  }
 }
 
 export async function signupVendor(input: VendorSignupInput): Promise<Bundle> {
   const session = await mongoose.startSession();
   try {
-    return await session.withTransaction(async () => {
+    const bundle = await session.withTransaction(async () => {
       const [account] = await Account.create(
         [
           {
@@ -274,6 +332,13 @@ export async function signupVendor(input: VendorSignupInput): Promise<Bundle> {
         subscription: subscription.toJSON(),
       };
     });
+
+    // After the vendor is committed and visible, auto-create their Supplier
+    // directory listing (pending admin approval). Awaited but failure-safe.
+    const a: any = bundle.account;
+    await autoCreateSupplierSafe(String(a.id ?? a._id), input);
+
+    return bundle;
   } finally {
     session.endSession();
   }
